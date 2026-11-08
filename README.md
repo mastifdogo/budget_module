@@ -82,13 +82,19 @@ Add `--serve 8098` to keep it running and try it in a browser.
 ## Releasing
 
 Bump `version` in `ledger-module.json` (new features: middle number; fixes:
-last number), commit, tag `v<version>`, push the tag and create a GitHub
-Release from it. Ledger installs it on its update schedule or with
-**Update modules now**. Never edit a released migration. Add the next
+last number), note it under Changes, commit and push to `main`. The
+`.github/workflows/release.yml` workflow then tags `v<version>` and creates
+the GitHub Release; don't tag by hand. If it fails with "Resource not
+accessible by integration", allow it once under the repository's Settings →
+Actions → General → Workflow permissions → "Read and write permissions", then
+Actions → Release → Run workflow. Ledger installs it on its update schedule or
+with **Update modules now**. Never edit a released migration. Add the next
 `migrations/NNN_name.sql` instead.
 
 ## Changes
 
+- **0.0.3**: releases are made automatically by a GitHub workflow when the
+  version changes on `main` (includes the 0.0.2 change, which wasn't released).
 - **0.0.2**: point to Ledger's renamed **Settings → LLM API** page.
 - **0.0.1**: fix AI forecasts with Claude (and strict OpenAI-compatible
   servers), which refused the forecast's JSON schema.

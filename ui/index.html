@@ -487,8 +487,8 @@
 		const intro = el("section", { class: "card" },
 			el("h2", { text: "Forecast next month with AI" }),
 			el("p", { class: "muted small", style: "margin:0.25rem 0 0.75rem", text: `The AI reads the last ${st.history_months} months of revenue and expenses, your budgets and the notes under Settings → Budget, and proposes an amount per account. Nothing changes until you apply it.` }));
-		if (!st.llm?.configured) intro.append(el("p", { class: "error", text: "No AI provider is set up. An admin can add one under Settings → AI." }));
-		else if (!st.llm?.allowed) intro.append(el("p", { class: "error", text: "This module isn't allowed to use AI yet. An admin can allow Budget under Settings → AI." }));
+		if (!st.llm?.configured) intro.append(el("p", { class: "error", text: "No LLM connection is set up. An admin can add one under Settings → LLM API." }));
+		else if (!st.llm?.allowed) intro.append(el("p", { class: "error", text: "This module isn't allowed to use AI yet. An admin can allow Budget under Settings → LLM API." }));
 		const btn = el("button", { text: `Forecast ${mLabel(target, true)}`, disabled: !canAsk });
 		const ahead = el("select", { "aria-label": "Month to forecast" }, [0, 1, 2].map((n) => el("option", { value: addMonths(st.this_month, n), text: mLabel(addMonths(st.this_month, n), true), selected: n === 1 })));
 		ahead.onchange = () => (btn.textContent = `Forecast ${mLabel(ahead.value, true)}`);

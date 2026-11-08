@@ -21,7 +21,7 @@ before it becomes a budget.
   Ledger's search bar finds them too: type an account name.
 - **AI forecast tab.** *Forecast December 2026* sends each revenue/expense
   account's monthly totals for the chosen history, your budgets and the notes
-  under Settings → Budget to Ledger's AI provider. The AI suggests an
+  under Settings → Budget to Ledger's LLM connection. The AI suggests an
   amount and a short reason per account. **Nothing changes until a person
   applies it:** the forecast waits as a pending suggestion (with a dashboard
   to-do) and you can edit amounts, untick lines, then **Apply as budget**
@@ -38,8 +38,9 @@ entries. It only reads the books through `ctx.ledger`.
 ## Setup
 
 1. In Ledger: **Settings → Modules**, enter `mastifdogo/budget_module`, Add.
-2. For forecasts, an admin sets up an AI provider under **Settings → AI**
-   and ticks **Budget** in the list of modules allowed to use it. Budgets and
+2. For forecasts, an admin sets up an LLM connection under
+   **Settings → LLM API** and ticks **Budget** in the list of modules allowed
+   to use it. Forecasts use the connection for text. Budgets and
    charts work without it.
 3. Optional, under **Settings → Budget**:
    - *Months of history* (3–24, default 12) for charts and forecasts.
@@ -88,6 +89,7 @@ Release from it. Ledger installs it on its update schedule or with
 
 ## Changes
 
+- **0.0.2**: point to Ledger's renamed **Settings → LLM API** page.
 - **0.0.1**: fix AI forecasts with Claude (and strict OpenAI-compatible
   servers), which refused the forecast's JSON schema.
 - **0.0.0**: first release: budgets per account and month, account charts,

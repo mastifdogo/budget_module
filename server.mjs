@@ -360,8 +360,8 @@ export default async function register(ctx) {
 		const target = parseMonth(b.month, "month", addMonths(today, 1));
 		if (target < today || target > addMonths(today, 3)) fail(422, "forecasts can be made for this month or up to 3 months ahead");
 		const st = await ctx.llm.status();
-		if (!st.configured) fail(409, "No AI provider is set up. An admin can add one under Settings → AI.");
-		if (!st.allowed) fail(409, "The Budget module isn't allowed to use AI yet. An admin can allow it under Settings → AI.");
+		if (!st.configured) fail(409, "No LLM connection is set up. An admin can add one under Settings → LLM API.");
+		if (!st.allowed) fail(409, "The Budget module isn't allowed to use AI yet. An admin can allow it under Settings → LLM API.");
 
 		const s = await settings();
 		const histEnd = addMonths(target, -1) > today ? today : addMonths(target, -1);

@@ -88,5 +88,7 @@ Release from it. Ledger installs it on its update schedule or with
 
 ## Changes
 
+- **0.0.1**: fix AI forecasts with Claude (and strict OpenAI-compatible
+  servers), which refused the forecast's JSON schema.
 - **0.0.0**: first release: budgets per account and month, account charts,
   AI forecasts with review, dashboard alerts, search.

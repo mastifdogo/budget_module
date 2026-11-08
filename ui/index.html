@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget</title>
+<style>
+	:root {
+		--bg: #fff; --surface: #fff; --text: #1d232b; --muted: #5d6875; --border: #dde1e6; --accent: #1f6feb; --danger: #cf222e;
+		--soft: #f4f6f8; --grid: #eceef1; --axis: #c3c8cf;
+		--series-1: #2a78d6; --series-2: #eb6834; --budget-ink: #3d4652;
+		--good: #0ca30c; --warn: #fab219; --critical: #d03b3b; --track: #e6effb;
+		color-scheme: light;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--bg: #171b21; --surface: #171b21; --text: #e3e7ec; --muted: #97a1ad; --border: #2c333c; --accent: #4c8dff; --danger: #ff7b72;
+			--soft: #1e242c; --grid: #242a32; --axis: #3a424c;
+			--series-1: #3987e5; --series-2: #d95926; --budget-ink: #c9d1da; --track: #1f2c3d;
+			color-scheme: dark;
+		}
+	}
+	* { box-sizing: border-box; }
+	body { margin: 0; padding: 1rem 1.25rem 2rem; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, sans-serif; }
+	h1 { font-size: 1.4rem; margin: 0; }
+	h2 { font-size: 1rem; margin: 0 0 0.25rem; }
+	.muted { color: var(--muted); }
+	.small { font-size: 0.82rem; }
+	.error { color: var(--danger); margin: 0.5rem 0; white-space: pre-wrap; }
+	.error:empty { display: none; }
+	.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
+	.spacer { flex: 1; }
+	header.bar { margin-bottom: 0.75rem; }
+	button, .btn { padding: 0.35rem 0.75rem; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+	button.secondary { background: transparent; color: var(--accent); }
+	button.plain { background: transparent; color: var(--muted); border-color: transparent; padding: 0.35rem 0.5rem; }
+	button:disabled { opacity: 0.55; cursor: default; }
+	input, select { padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: inherit; font: inherit; }
+	input.money { width: 7.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+	nav.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; overflow-x: auto; }
+	nav.tabs button { background: transparent; color: var(--muted); border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 0.45rem 0.7rem; }
+	nav.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+	.month { display: inline-flex; align-items: center; gap: 0.15rem; }
+	.month strong { min-width: 8.5rem; text-align: center; }
+	.card { border: 1px solid var(--border); border-radius: 6px; padding: 0.85rem 1rem; margin-bottom: 1rem; background: var(--surface); }
+	.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+	.seg button { border: none; border-radius: 0; background: transparent; color: var(--muted); padding: 0.25rem 0.65rem; }
+	.seg button[aria-pressed="true"] { background: var(--soft); color: var(--text); font-weight: 600; }
+	.legend { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; font-size: 0.82rem; color: var(--muted); margin: 0.35rem 0; }
+	.legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+	.key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+	.key.line { height: 2px; border-radius: 1px; width: 14px; }
+	.chart { position: relative; width: 100%; }
+	.chart svg { display: block; width: 100%; overflow: visible; }
+	.chart text { fill: var(--muted); font-size: 11px; font-family: system-ui, sans-serif; }
+	.chart text.value { fill: var(--text); font-weight: 600; }
+	.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.55rem; font-size: 0.8rem; box-shadow: 0 4px 14px rgba(0,0,0,0.12); white-space: nowrap; z-index: 2; display: none; }
+	.tip div { display: flex; justify-content: space-between; gap: 0.9rem; align-items: center; }
+	.tip b { font-variant-numeric: tabular-nums; }
+	.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 0.75rem; margin: 0.5rem 0 0.25rem; }
+	.stat .label { font-size: 0.78rem; color: var(--muted); }
+	.stat .value { font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+	table { width: 100%; border-collapse: collapse; }
+	th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+	th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); font-weight: 600; }
+	td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+	tr.group td { background: var(--soft); font-weight: 600; font-size: 0.85rem; }
+	a.acct, button.link { color: var(--text); text-decoration: none; background: none; border: none; padding: 0; font: inherit; cursor: pointer; text-align: left; }
+	a.acct:hover, button.link:hover { color: var(--accent); text-decoration: underline; }
+	.code { color: var(--muted); font-size: 0.8rem; margin-right: 0.35rem; font-variant-numeric: tabular-nums; }
+	.meter { position: relative; height: 8px; border-radius: 4px; background: var(--track); min-width: 4rem; overflow: hidden; }
+	.meter > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--series-1); }
+	.meter.warn > i { background: var(--warn); }
+	.meter.over > i { background: var(--critical); }
+	.flag { font-size: 0.75rem; white-space: nowrap; }
+	.flag.over { color: var(--danger); }
+	.spark { width: 84px; height: 22px; display: block; }
+	.reason { font-size: 0.82rem; color: var(--muted); }
+	.pill { display: inline-block; font-size: 0.72rem; padding: 0.05rem 0.45rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+	.pill.pending { border-color: var(--series-2); color: var(--text); }
+	.pill.applied { border-color: var(--good); }
+	details summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; margin-top: 0.5rem; }
+	.empty { padding: 1.5rem 0.5rem; text-align: center; color: var(--muted); }
+	.scroll { overflow-x: auto; }
+	@media (max-width: 560px) {
+		body { padding: 0.75rem 0.75rem 1.5rem; }
+		.hide-narrow { display: none; }
+		input.money { width: 6rem; }
+		.month strong { min-width: 7rem; }
+	}
+	@media (max-width: 360px) {
+		.hide-tiny { display: none; }
+		th, td { padding: 0.4rem 0.3rem; }
+	}
+</style>
+</head>
+<body>
+<header class="bar">
+	<h1>Budget</h1>
+	<span class="spacer"></span>
+	<span class="month">
+		<button class="plain" id="prev" title="Previous month" aria-label="Previous month">‹</button>
+		<strong id="monthLabel"></strong>
+		<button class="plain" id="next" title="Next month" aria-label="Next month">›</button>
+	</span>
+</header>
+<nav class="tabs" role="tablist">
+	<button role="tab" data-tab="budget" aria-selected="true">Budget</button>
+	<button role="tab" data-tab="accounts" aria-selected="false">Accounts</button>
+	<button role="tab" data-tab="forecast" aria-selected="false">AI forecast <span id="pendingBadge"></span></button>
+</nav>
+<p id="error" class="error" role="alert"></p>
+<main id="view"></main>
+
+<script>
+	"use strict";
+	const ID = "budget";
+	const api = (path, opts = {}) =>
+		fetch(`/api/v1/m/${ID}${path}`, { ...opts, headers: { "Content-Type": "application/json", ...(opts.headers || {}) } }).then(async (r) => {
+			if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error?.message || r.statusText);
+			return r.status === 204 ? null : r.json();
+		});
+	const $ = (id) => document.getElementById(id);
+	const showError = (e) => ($("error").textContent = e ? e.message || String(e) : "");
+
+	// ---- tiny DOM helpers (all data goes in as textContent) ----
+	function el(tag, props = {}, ...kids) {
+		const n = document.createElement(tag);
+		for (const [k, v] of Object.entries(props)) {
+			if (v === undefined || v === null || v === false) continue;
+			if (k === "text") n.textContent = v;
+			else if (k === "class") n.className = v;
+			else if (k.startsWith("on")) n[k] = v;
+			else if (k === "style") n.style.cssText = v;
+			else n.setAttribute(k, v === true ? "" : v);
+		}
+		for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(kid);
+		return n;
+	}
+	const SVG = "http://www.w3.org/2000/svg";
+	function sv(tag, attrs = {}, text) {
+		const n = document.createElementNS(SVG, tag);
+		for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) n.setAttribute(k, v);
+		if (text !== undefined) n.textContent = text;
+		return n;
+	}
+
+	// ---- money & months ----
+	const num = (v) => (v === null || v === undefined ? null : Number(v));
+	const fmt = (cents, cur) =>
+		`${(Number(cents) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${cur ? " " + cur : ""}`;
+	const fmtShort = (cents) => {
+		const d = Number(cents) / 100, a = Math.abs(d);
+		if (a >= 1e6) return `${(d / 1e6).toLocaleString(undefined, { maximumFractionDigits: 1 })}M`;
+		if (a >= 1e4) return `${(d / 1e3).toLocaleString(undefined, { maximumFractionDigits: 0 })}K`;
+		return d.toLocaleString(undefined, { maximumFractionDigits: 0 });
+	};
+	const toDollars = (cents) => (cents === null || cents === undefined ? "" : (Number(cents) / 100).toFixed(2));
+	function parseMoney(s) {
+		const t = String(s).replace(/[\s,$]/g, "");
+		if (t === "") return null;
+		if (!/^\d{1,13}(\.\d{0,2})?$/.test(t)) throw new Error(`"${s}" isn't an amount (e.g. 1250.00)`);
+		const [w, f = ""] = t.split(".");
+		return Number(w) * 100 + Number((f + "00").slice(0, 2));
+	}
+	function addMonths(ym, n) {
+		const [y, m] = ym.split("-").map(Number);
+		const d = new Date(Date.UTC(y, m - 1 + n, 1));
+		return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+	}
+	const mLabel = (ym, long) =>
+		new Date(`${ym}-15T00:00:00Z`).toLocaleString(undefined, long ? { month: "long", year: "numeric", timeZone: "UTC" } : { month: "short", timeZone: "UTC" });
+	const mShort = (ym) => new Date(`${ym}-15T00:00:00Z`).toLocaleString(undefined, { month: "short", year: "2-digit", timeZone: "UTC" });
+	const TYPE_LABEL = { asset: "Assets", liability: "Liabilities", equity: "Equity", revenue: "Revenue", expense: "Expenses" };
+
+	// ---- state ----
+	const params = new URLSearchParams(location.search);
+	const state = {
+		tab: params.get("forecast") ? "forecast" : "budget",
+		month: null,
+		status: null,
+		kind: "expense",
+		account: params.get("account"),
+		focusForecast: params.get("forecast"),
+	};
+
+	// ---- charts ----
+	function niceScale(min, max, count = 4) {
+		if (min === max) { max = min + 100; }
+		const span = max - min;
+		const raw = span / count;
+		const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+		const step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((s) => s >= raw) || raw;
+		const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
+		const ticks = [];
+		for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Math.round(v));
+		return { lo, hi, ticks };
+	}
+	// Bar path with a 4px rounded data end, square at the baseline.
+	function barPath(x, w, y0, y1) {
+		const h = Math.abs(y1 - y0);
+		const r = Math.min(4, w / 2, h);
+		if (h < 0.5) return "";
+		if (y1 < y0) return `M${x},${y0}V${y1 + r}Q${x},${y1} ${x + r},${y1}H${x + w - r}Q${x + w},${y1} ${x + w},${y1 + r}V${y0}Z`;
+		return `M${x},${y0}V${y1 - r}Q${x},${y1} ${x + r},${y1}H${x + w - r}Q${x + w},${y1} ${x + w},${y1 - r}V${y0}Z`;
+	}
+
+	/**
+	 * Draws a month chart.
+	 *   months: ["2026-01", ...]
+	 *   values: actual per month (cents) - bars or a line
+	 *   budget: budget per month (cents|null) - tick marks
+	 *   extra:  { month, value, budget } drawn after the last month (forecast)
+	 *   mode:   "bar" | "line"
+	 */
+	function monthChart(host, { months, values, budget, covered, extra, mode = "bar", currency, height = 210, labels = {} }) {
+		const wrap = el("div", { class: "chart" });
+		const tip = el("div", { class: "tip" });
+		wrap.append(tip);
+		host.append(wrap);
+		const slots = months.map((m, i) => ({ month: m, value: num(values[i]), budget: budget ? num(budget[i]) : null, covered: covered ? num(covered[i]) : num(values[i]), extra: false }));
+		if (extra && (extra.value !== null || extra.budget !== null)) slots.push({ month: extra.month, value: num(extra.value), budget: num(extra.budget), extra: true });
+
+		const draw = () => {
+			wrap.querySelector("svg")?.remove();
+			const W = Math.max(240, wrap.clientWidth || 600), H = height;
+			const left = 44, right = mode === "line" ? 56 : 8, top = 14, bottom = 24;
+			const iw = W - left - right, ih = H - top - bottom;
+			const all = slots.flatMap((s) => [s.value, s.budget]).filter((v) => v !== null);
+			const sc = niceScale(Math.min(0, ...all), Math.max(0, ...all));
+			const y = (v) => top + ih - ((v - sc.lo) / (sc.hi - sc.lo)) * ih;
+			const band = iw / slots.length;
+			const cx = (i) => left + band * i + band / 2;
+			const svg = sv("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": labels.aria || "Chart" });
+			// grid + y ticks
+			for (const t of sc.ticks) {
+				svg.append(sv("line", { x1: left, x2: W - right, y1: y(t), y2: y(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1, "shape-rendering": "crispEdges" }));
+				svg.append(sv("text", { x: left - 6, y: y(t) + 4, "text-anchor": "end" }, fmtShort(t)));
+			}
+			// x labels: thin out when crowded
+			const every = Math.ceil(slots.length / Math.max(1, Math.floor(iw / 44)));
+			slots.forEach((s, i) => {
+				if ((slots.length - 1 - i) % every === 0)
+					svg.append(sv("text", { x: cx(i), y: H - 6, "text-anchor": "middle" }, s.extra ? `${mLabel(s.month)}*` : mLabel(s.month)));
+			});
+			const y0 = y(0);
+			if (mode === "bar") {
+				const bw = Math.max(3, Math.min(24, band * 0.6));
+				slots.forEach((s, i) => {
+					if (s.value !== null) {
+						svg.append(sv("path", { d: barPath(cx(i) - bw / 2, bw, y0, y(s.value)), fill: s.extra ? "var(--series-2)" : "var(--series-1)" }));
+					}
+					if (s.budget !== null) {
+						const tw = Math.min(band * 0.85, bw + 14);
+						svg.append(sv("line", { x1: cx(i) - tw / 2, x2: cx(i) + tw / 2, y1: y(s.budget), y2: y(s.budget), stroke: "var(--surface)", "stroke-width": 6, "stroke-linecap": "round" }));
+						svg.append(sv("line", { x1: cx(i) - tw / 2, x2: cx(i) + tw / 2, y1: y(s.budget), y2: y(s.budget), stroke: "var(--budget-ink)", "stroke-width": 2, "stroke-linecap": "round" }));
+					}
+				});
+			} else {
+				const real = slots.map((s, i) => (s.extra || s.value === null ? null : [cx(i), y(s.value)])).filter(Boolean);
+				if (real.length) {
+					const d = real.map((p, i) => `${i ? "L" : "M"}${p[0]},${p[1]}`).join("");
+					svg.append(sv("path", { d: `${d}L${real[real.length - 1][0]},${y0}L${real[0][0]},${y0}Z`, fill: "var(--series-1)", opacity: 0.1 }));
+					svg.append(sv("path", { d, fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+					const end = real[real.length - 1];
+					svg.append(sv("circle", { cx: end[0], cy: end[1], r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2 }));
+					const last = slots.filter((s) => !s.extra && s.value !== null).pop();
+					svg.append(sv("text", { x: end[0] + 8, y: end[1] + 4, class: "value" }, fmtShort(last.value)));
+				}
+			}
+			// hover layer
+			const cross = sv("line", { y1: top, y2: top + ih, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
+			svg.append(cross);
+			slots.forEach((s, i) => {
+				const hit = sv("rect", { x: left + band * i, y: top, width: band, height: ih, fill: "transparent" });
+				const show = (ev) => {
+					cross.setAttribute("x1", cx(i)); cross.setAttribute("x2", cx(i)); cross.setAttribute("visibility", "visible");
+					const rows = [];
+					if (s.value !== null) rows.push([s.extra ? (labels.extra || "AI forecast") : (labels.value || "Actual"), fmt(s.value, currency)]);
+					if (s.budget !== null) rows.push(["Budget", fmt(s.budget, currency)]);
+					if (!s.extra && s.value !== null && s.budget !== null && s.budget > 0) rows.push([s.covered !== s.value ? "Used (budgeted accts)" : "Used", `${Math.round((s.covered / s.budget) * 100)}%`]);
+					tip.replaceChildren(el("div", {}, el("strong", { text: mLabel(s.month, true) + (s.extra ? " (next)" : "") })), ...rows.map(([k, v]) => el("div", {}, el("span", { class: "muted", text: k }), el("b", { text: v }))));
+					tip.style.display = "block";
+					const r = wrap.getBoundingClientRect();
+					const px = (ev.clientX ?? r.left + cx(i)) - r.left;
+					const tw = tip.offsetWidth;
+					tip.style.left = `${Math.max(0, Math.min(r.width - tw, px + 12 + tw > r.width ? px - tw - 12 : px + 12))}px`;
+					tip.style.top = `${top}px`;
+				};
+				hit.addEventListener("mousemove", show);
+				hit.addEventListener("click", show);
+				hit.addEventListener("mouseleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+				svg.append(hit);
+			});
+			wrap.prepend(svg);
+		};
+		draw();
+		let last = wrap.clientWidth;
+		new ResizeObserver(() => { if (Math.abs(wrap.clientWidth - last) > 4) { last = wrap.clientWidth; draw(); } }).observe(wrap);
+		return wrap;
+	}
+
+	function sparkline(values, budget) {
+		const w = 84, h = 22, v = values.map(Number);
+		const b = (budget || []).map((x) => (x === null ? null : Number(x)));
+		const max = Math.max(1, ...v, ...b.filter((x) => x !== null)), min = Math.min(0, ...v);
+		const x = (i) => 2 + (i * (w - 6)) / Math.max(1, v.length - 1);
+		const y = (val) => h - 3 - ((val - min) / (max - min)) * (h - 6);
+		const svg = sv("svg", { class: "spark", viewBox: `0 0 ${w} ${h}`, "aria-hidden": "true" });
+		svg.append(sv("path", { d: v.map((val, i) => `${i ? "L" : "M"}${x(i)},${y(val)}`).join(""), fill: "none", stroke: "var(--muted)", "stroke-width": 1.5, "stroke-linejoin": "round", opacity: 0.8 }));
+		svg.append(sv("circle", { cx: x(v.length - 1), cy: y(v[v.length - 1]), r: 2.5, fill: "var(--series-1)" }));
+		return svg;
+	}
+	const legend = (items) =>
+		el("div", { class: "legend" }, items.map(([cls, color, text]) => el("span", {}, el("i", { class: `key ${cls}`, style: `background:${color}` }), text)));
+
+	// ---- data table under a chart (table view for accessibility) ----
+	function dataTable(cols, rows) {
+		return el("details", {},
+			el("summary", { text: "Show as table" }),
+			el("div", { class: "scroll" }, el("table", { class: "small" },
+				el("thead", {}, el("tr", {}, cols.map((c, i) => el("th", { class: i ? "num" : "", text: c })))),
+				el("tbody", {}, rows.map((r) => el("tr", {}, r.map((c, i) => el("td", { class: i ? "num" : "", text: c }))))))));
+	}
+
+	// ---- Budget tab ----
+	async function renderBudget(view) {
+		const data = await api(`/overview?month=${state.month}`);
+		const canEdit = state.status.can_edit;
+		const kindRows = data.accounts.filter((a) => a.type === state.kind);
+		const last = data.months.length - 1;
+
+		const seg = el("span", { class: "seg" },
+			["expense", "revenue"].map((k) => el("button", { "aria-pressed": String(state.kind === k), text: k === "expense" ? "Spending" : "Income", onclick: () => { state.kind = k; render(); } })));
+		const copyBtn = canEdit && el("button", { class: "secondary", text: `Copy ${mLabel(addMonths(state.month, -1))} budget`, title: "Copy last month's budget lines into this month (keeps lines already set)",
+			onclick: async () => {
+				try {
+					const r = await api("/budgets/copy", { method: "POST", body: JSON.stringify({ from: addMonths(state.month, -1), to: state.month }) });
+					showError(r.copied ? null : new Error(`Nothing copied: ${mLabel(addMonths(state.month, -1), true)} has no budget lines that aren't already set here.`));
+					render();
+				} catch (e) { showError(e); }
+			} });
+		view.append(el("div", { class: "bar", style: "margin-bottom:0.75rem" }, seg, el("span", { class: "spacer" }), copyBtn));
+
+		const totals = data.totals.filter((t) => t.type === state.kind);
+		if (!totals.length) view.append(el("div", { class: "card empty", text: `No ${state.kind} accounts yet. Add them under Accounts in Ledger.` }));
+		for (const t of totals) {
+			const actual = num(t.actual[last]), budget = num(t.budget[last]);
+			const covered = num(t.budgeted_actual[last]);
+			const card = el("section", { class: "card" });
+			card.append(el("h2", { text: `${state.kind === "expense" ? "Spending" : "Income"} · ${t.currency}` }));
+			// Compare the budget only with accounts that have one this month.
+			const left = budget === null ? null : budget - covered;
+			card.append(el("div", { class: "stats" },
+				stat(`${mLabel(state.month)} actual`, fmt(actual, t.currency)),
+				stat("Budget", budget === null ? "—" : fmt(budget, t.currency)),
+				stat(state.kind === "expense" ? (left !== null && left < 0 ? "Over budget" : "Left to spend") : (left !== null && left > 0 ? "Still to come" : "Ahead of budget"), left === null ? "—" : fmt(Math.abs(left), t.currency)),
+				stat(`${mLabel(data.next_month)} forecast`, t.forecast === null ? "—" : fmt(t.forecast, t.currency))));
+			if (budget !== null && actual !== covered)
+				card.append(el("p", { class: "muted small", style: "margin:0.25rem 0 0", text: `${fmt(actual - covered, t.currency)} ${state.kind === "expense" ? "spent" : "received"} in accounts without a budget for ${mLabel(state.month)} isn't counted against the budget.` }));
+			const items = [["", "var(--series-1)", "Actual"], ["line", "var(--budget-ink)", "Budget"]];
+			if (t.forecast !== null) items.push(["", "var(--series-2)", `AI forecast (${mLabel(data.next_month)}*)`]);
+			card.append(legend(items));
+			monthChart(card, { months: data.months, values: t.actual, budget: t.budget, covered: t.budgeted_actual, currency: t.currency,
+				extra: { month: data.next_month, value: t.forecast, budget: t.next_budget },
+				labels: { aria: `${state.kind} by month in ${t.currency}, actual against budget` } });
+			card.append(dataTable(["Month", "Actual", "Budget"], data.months.map((m, i) => [mShort(m), fmt(t.actual[i]), t.budget[i] === null ? "—" : fmt(t.budget[i])])));
+			view.append(card);
+		}
+
+		if (!kindRows.length) return;
+		const tbody = el("tbody");
+		const byCur = new Map();
+		for (const a of kindRows) (byCur.get(a.currency) || byCur.set(a.currency, []).get(a.currency)).push(a);
+		for (const [cur, rows] of byCur) {
+			if (byCur.size > 1) tbody.append(el("tr", { class: "group" }, el("td", { colspan: 5, text: cur })));
+			for (const a of rows) tbody.append(budgetRow(a, last, canEdit));
+		}
+		view.append(el("section", { class: "card" },
+			el("h2", { text: `${mLabel(state.month, true)} by account` }),
+			el("p", { class: "muted small", style: "margin:0 0 0.5rem", text: canEdit ? "Type a budget and press Enter. Clear it to remove. Click an account for its chart." : "Click an account for its chart." }),
+			el("div", { class: "scroll" }, el("table", {},
+				el("thead", {}, el("tr", {}, el("th", { text: "Account" }), el("th", { class: "num", text: "Budget" }), el("th", { class: "num", text: "Actual" }),
+					el("th", { class: "hide-tiny", text: "Used" }), el("th", { class: "hide-narrow", text: "Trend" }))),
+				tbody))));
+	}
+	const stat = (label, value) => el("div", { class: "stat" }, el("div", { class: "label", text: label }), el("div", { class: "value", text: value }));
+
+	function budgetRow(a, last, canEdit) {
+		const actual = num(a.actual[last]), budget = num(a.budget[last]);
+		let input;
+		if (canEdit) {
+			input = el("input", { class: "money", inputmode: "decimal", value: toDollars(budget), placeholder: "—", "aria-label": `Budget for ${a.name}` });
+			const save = async () => {
+				let cents;
+				try { cents = parseMoney(input.value); } catch (e) { showError(e); input.focus(); return; }
+				if (cents === budget) return;
+				try {
+					if (cents === null) await api(`/budgets/${state.month}/${encodeURIComponent(a.code)}`, { method: "DELETE" });
+					else await api("/budgets", { method: "PUT", body: JSON.stringify({ month: state.month, account_code: a.code, amount_cents: cents }) });
+					showError(null);
+					render();
+				} catch (e) { showError(e); }
+			};
+			input.onkeydown = (e) => { if (e.key === "Enter") input.blur(); if (e.key === "Escape") { input.value = toDollars(budget); input.blur(); } };
+			input.onchange = save;
+		}
+		const pct = budget ? actual / budget : null;
+		const isExpense = a.type === "expense";
+		const meterClass = pct === null ? "" : isExpense ? (pct > 1 ? "over" : pct * 100 >= state.status.alert_threshold_pct * 0.9 ? "warn" : "") : "";
+		const meter = el("div", { class: `meter ${meterClass}`, title: pct === null ? "No budget" : `${Math.round(pct * 100)}% of budget` }, el("i", { style: `width:${Math.min(100, Math.round((pct || 0) * 100))}%` }));
+		const flag = pct === null ? el("span", { class: "flag muted", text: "no budget" })
+			: el("span", { class: `flag ${isExpense && pct > 1 ? "over" : "muted"}`, text: isExpense && pct > 1 ? `▲ ${Math.round(pct * 100)}%` : `${Math.round(pct * 100)}%` });
+		return el("tr", {},
+			el("td", {}, el("button", { class: "link", onclick: () => openAccount(a.code) }, el("span", { class: "code", text: a.code }), a.name)),
+			el("td", { class: "num" }, canEdit ? input : budget === null ? "—" : fmt(budget)),
+			el("td", { class: "num", text: fmt(actual) }),
+			el("td", { class: "hide-tiny" }, el("div", { style: "display:grid;gap:0.2rem" }, meter, flag)),
+			el("td", { class: "hide-narrow" }, sparkline(a.actual, a.budget)));
+	}
+
+	// ---- Accounts tab ----
+	async function renderAccounts(view) {
+		const { data } = await api("/accounts");
+		if (!data.length) { view.append(el("div", { class: "card empty", text: "No accounts yet." })); return; }
+		const tbody = el("tbody");
+		for (const type of ["asset", "liability", "equity", "revenue", "expense"]) {
+			const rows = data.filter((a) => a.type === type);
+			if (!rows.length) continue;
+			tbody.append(el("tr", { class: "group" }, el("td", { colspan: 2, text: TYPE_LABEL[type] })));
+			const sign = type === "asset" || type === "expense" ? 1 : -1;
+			for (const a of rows)
+				tbody.append(el("tr", {},
+					el("td", {}, el("button", { class: "link", onclick: () => openAccount(a.code) }, el("span", { class: "code", text: a.code }), a.name)),
+					el("td", { class: "num", text: fmt(Number(a.balance_cents) * sign, a.currency) })));
+		}
+		view.append(el("section", { class: "card" }, el("h2", { text: "All accounts" }),
+			el("p", { class: "muted small", style: "margin:0 0 0.5rem", text: "Current balances. Click an account to chart it over time." }),
+			el("table", {}, el("thead", {}, el("tr", {}, el("th", { text: "Account" }), el("th", { class: "num", text: "Balance" }))), tbody)));
+	}
+
+	// ---- one account's charts ----
+	async function renderAccount(view) {
+		const d = await api(`/accounts/${encodeURIComponent(state.account)}/history?month=${state.month}`);
+		const a = d.account, cur = a.currency;
+		const pl = a.type === "revenue" || a.type === "expense";
+		view.append(el("div", { class: "bar", style: "margin-bottom:0.75rem" },
+			el("button", { class: "secondary", text: "‹ Back", onclick: () => { state.account = null; history.replaceState(null, "", location.pathname); render(); } }),
+			el("h2", { style: "margin:0" }, el("span", { class: "code", text: a.code }), a.name),
+			el("span", { class: "pill", text: TYPE_LABEL[a.type] })));
+		const last = d.months.length - 1;
+		if (pl) {
+			const card = el("section", { class: "card" }, el("h2", { text: `${a.type === "expense" ? "Spending" : "Income"} per month · ${cur}` }));
+			const avg = d.activity.slice(0, last).reduce((s, v) => s + Number(v), 0) / Math.max(1, last);
+			card.append(el("div", { class: "stats" },
+				stat(mLabel(d.month), fmt(d.activity[last], cur)),
+				stat("Budget", d.budget[last] === null ? "—" : fmt(d.budget[last], cur)),
+				stat(`Avg. previous ${last} mo.`, fmt(Math.round(avg), cur)),
+				stat(`${mLabel(d.next_month)} forecast`, d.forecast ? fmt(d.forecast.amount_cents, cur) : "—")));
+			const items = [["", "var(--series-1)", "Actual"], ["line", "var(--budget-ink)", "Budget"]];
+			if (d.forecast) items.push(["", "var(--series-2)", `AI forecast (${mLabel(d.next_month)}*)`]);
+			card.append(legend(items));
+			monthChart(card, { months: d.months, values: d.activity, budget: d.budget, currency: cur,
+				extra: { month: d.next_month, value: d.forecast ? d.forecast.amount_cents : null, budget: d.next_budget ?? null },
+				labels: { aria: `${a.name} per month, actual against budget` } });
+			if (d.forecast) card.append(el("p", { class: "reason", text: `AI (${d.forecast.status}): ${d.forecast.reason}` }));
+			card.append(dataTable(["Month", "Actual", "Budget"], d.months.map((m, i) => [mShort(m), fmt(d.activity[i]), d.budget[i] === null ? "—" : fmt(d.budget[i])])));
+			view.append(card);
+		}
+		const bcard = el("section", { class: "card" }, el("h2", { text: `${pl ? "Cumulative total" : "Balance"} at month end · ${cur}` }));
+		if (pl) bcard.append(el("p", { class: "muted small", style: "margin:0", text: "Running total since the start of the chart period (revenue and expense accounts reset only when the books are closed)." }));
+		bcard.append(el("div", { class: "stats" }, stat(`End of ${mLabel(d.month)}`, fmt(d.balance[last], cur)), stat(`Change over ${d.months.length} mo.`, fmt(Number(d.balance[last]) - Number(d.opening_balance_cents), cur))));
+		monthChart(bcard, { months: d.months, values: d.balance, mode: "line", currency: cur, height: 190, labels: { value: "Balance", aria: `${a.name} balance at each month end` } });
+		if (!pl) {
+			bcard.append(el("h2", { style: "margin-top:1rem", text: "Net change per month" }));
+			monthChart(bcard, { months: d.months, values: d.activity, currency: cur, height: 150, labels: { value: "Net change", aria: `${a.name} net change per month` } });
+		}
+		bcard.append(dataTable(["Month", "Net change", "Balance"], d.months.map((m, i) => [mShort(m), fmt(d.activity[i]), fmt(d.balance[i])])));
+		view.append(bcard);
+	}
+
+	// ---- Forecast tab ----
+	async function renderForecast(view) {
+		const st = state.status;
+		const target = addMonths(st.this_month, 1);
+		const canAsk = st.can_edit && st.llm?.configured && st.llm?.allowed;
+		const intro = el("section", { class: "card" },
+			el("h2", { text: "Forecast next month with AI" }),
+			el("p", { class: "muted small", style: "margin:0.25rem 0 0.75rem", text: `The AI reads the last ${st.history_months} months of revenue and expenses, your budgets and the notes under Settings → Budget, and proposes an amount per account. Nothing changes until you apply it.` }));
+		if (!st.llm?.configured) intro.append(el("p", { class: "error", text: "No AI provider is set up. An admin can add one under Settings → AI." }));
+		else if (!st.llm?.allowed) intro.append(el("p", { class: "error", text: "This module isn't allowed to use AI yet. An admin can allow Budget under Settings → AI." }));
+		const btn = el("button", { text: `Forecast ${mLabel(target, true)}`, disabled: !canAsk });
+		const ahead = el("select", { "aria-label": "Month to forecast" }, [0, 1, 2].map((n) => el("option", { value: addMonths(st.this_month, n), text: mLabel(addMonths(st.this_month, n), true), selected: n === 1 })));
+		ahead.onchange = () => (btn.textContent = `Forecast ${mLabel(ahead.value, true)}`);
+		btn.onclick = async () => {
+			btn.disabled = true; btn.textContent = "Thinking…";
+			try {
+				const f = await api("/forecasts", { method: "POST", body: JSON.stringify({ month: ahead.value }) });
+				state.focusForecast = String(f.id);
+				showError(null);
+			} catch (e) { showError(e); }
+			render();
+		};
+		intro.append(el("div", { class: "bar" }, ahead, btn, st.llm?.model ? el("span", { class: "muted small", text: `${st.llm.provider || "AI"} · ${st.llm.model}` }) : null));
+		view.append(intro);
+
+		const { data } = await api("/forecasts");
+		const pending = data.filter((f) => f.status === "pending");
+		for (const f of pending) view.append(await forecastCard(f, st.can_edit));
+		const done = data.filter((f) => f.status !== "pending");
+		if (done.length) {
+			const tbody = el("tbody");
+			for (const f of done) {
+				tbody.append(el("tr", {},
+					el("td", {}, el("button", { class: "link", text: mLabel(f.month, true), onclick: () => { const d = $(`f-${f.id}`); if (d) d.open = !d.open; } })),
+					el("td", {}, el("span", { class: `pill ${f.status}`, text: f.status })),
+					el("td", { class: "hide-narrow small muted", text: `${f.requested_by} · ${new Date(f.created_at).toLocaleDateString()}${f.decided_by ? ` · ${f.status} by ${f.decided_by}` : ""}` })));
+				tbody.append(el("tr", {}, el("td", { colspan: 3, style: "padding:0;border:0" },
+					el("details", { id: `f-${f.id}`, style: "padding:0 0.5rem" }, el("summary", { text: `${f.lines.length} suggested lines` }),
+						el("p", { class: "small", text: f.summary }),
+						el("table", { class: "small" }, el("tbody", {}, f.lines.map((l) => el("tr", {}, el("td", {}, el("span", { class: "code", text: l.account_code }), l.name), el("td", { class: "num", text: fmt(l.amount_cents, l.currency) })))))))));
+			}
+			view.append(el("section", { class: "card" }, el("h2", { text: "Earlier forecasts" }), el("table", {}, tbody)));
+		}
+	}
+
+	async function forecastCard(f, canEdit) {
+		// Last months' actuals and current budgets give context next to each suggestion.
+		const ov = await api(`/overview?month=${addMonths(f.month, -1)}`).catch(() => null);
+		const byCode = new Map((ov?.accounts || []).map((a) => [a.code, a]));
+		const card = el("section", { class: "card", id: `forecast-${f.id}` });
+		card.append(el("div", { class: "bar" }, el("h2", { style: "margin:0", text: `AI forecast for ${mLabel(f.month, true)}` }), el("span", { class: "pill pending", text: "waiting for review" })));
+		card.append(el("p", { class: "muted small", style: "margin:0.25rem 0", text: `Requested by ${f.requested_by} · ${new Date(f.created_at).toLocaleString()}${f.model ? ` · ${f.model}` : ""}` }));
+		if (f.summary) card.append(el("p", { text: f.summary }));
+		const inputs = [];
+		const groups = [["expense", "Expenses"], ["revenue", "Revenue"]];
+		const tbody = el("tbody");
+		for (const [type, label] of groups) {
+			const lines = f.lines.filter((l) => l.type === type);
+			if (!lines.length) continue;
+			tbody.append(el("tr", { class: "group" }, el("td", { colspan: 4, text: label })));
+			for (const l of lines) {
+				const ctxRow = byCode.get(l.account_code);
+				const lastActual = ctxRow ? ctxRow.actual[ctxRow.actual.length - 1] : null;
+				const current = ctxRow ? ctxRow.next_budget : null;
+				const check = el("input", { type: "checkbox", checked: true, "aria-label": `Apply ${l.name}`, disabled: !canEdit });
+				const amount = el("input", { class: "money", inputmode: "decimal", value: toDollars(l.amount_cents), "aria-label": `Amount for ${l.name}`, disabled: !canEdit });
+				inputs.push({ l, check, amount });
+				tbody.append(el("tr", {},
+					el("td", {}, check),
+					el("td", {}, el("div", {}, el("span", { class: "code", text: l.account_code }), l.name), el("div", { class: "reason", text: l.reason })),
+					el("td", { class: "num hide-narrow small muted" },
+						el("div", { text: lastActual === null ? "" : `${mLabel(addMonths(f.month, -1))}: ${fmt(lastActual)}` }),
+						el("div", { text: current === null ? "no budget yet" : `budget now: ${fmt(current)}` })),
+					el("td", { class: "num" }, amount, el("div", { class: "small muted", text: l.currency }))));
+			}
+		}
+		card.append(el("div", { class: "scroll" }, el("table", {},
+			el("thead", {}, el("tr", {}, el("th", { text: "" }), el("th", { text: "Account and reason" }), el("th", { class: "num hide-narrow", text: "Context" }), el("th", { class: "num", text: "Forecast" }))), tbody)));
+		if (canEdit) {
+			const apply = el("button", { text: "Apply as budget" });
+			const reject = el("button", { class: "secondary", text: "Reject" });
+			apply.onclick = async () => {
+				try {
+					const lines = inputs.filter((i) => i.check.checked).map((i) => {
+						const c = parseMoney(i.amount.value);
+						if (c === null) throw new Error(`Enter an amount for ${i.l.name}, or untick it.`);
+						return { account_code: i.l.account_code, amount_cents: c };
+					});
+					if (!lines.length) throw new Error("Tick at least one line, or reject the forecast.");
+					if (!confirm(`Set ${lines.length} budget line(s) for ${mLabel(f.month, true)}? Existing budgets for those accounts are replaced.`)) return;
+					apply.disabled = reject.disabled = true;
+					await api(`/forecasts/${f.id}/apply`, { method: "POST", body: JSON.stringify({ lines }) });
+					showError(null);
+					state.tab = "budget"; state.month = f.month;
+					render();
+				} catch (e) { showError(e); apply.disabled = reject.disabled = false; }
+			};
+			reject.onclick = async () => {
+				try { await api(`/forecasts/${f.id}/reject`, { method: "POST", body: "{}" }); showError(null); render(); } catch (e) { showError(e); }
+			};
+			card.append(el("div", { class: "bar", style: "margin-top:0.75rem" }, apply, reject, el("span", { class: "muted small", text: "Untick or edit lines before applying." })));
+		}
+		return card;
+	}
+
+	// ---- shell ----
+	function openAccount(code) {
+		state.account = code;
+		history.replaceState(null, "", `?account=${encodeURIComponent(code)}`);
+		render();
+		scrollTo(0, 0);
+	}
+	let renderSeq = 0;
+	async function render() {
+		const seq = ++renderSeq;
+		$("monthLabel").textContent = mLabel(state.month, true);
+		for (const b of document.querySelectorAll("nav.tabs button")) b.setAttribute("aria-selected", String(!state.account && b.dataset.tab === state.tab));
+		const view = el("div");
+		try {
+			if (state.account) await renderAccount(view);
+			else if (state.tab === "budget") await renderBudget(view);
+			else if (state.tab === "accounts") await renderAccounts(view);
+			else await renderForecast(view);
+		} catch (e) {
+			showError(e);
+			if (state.account) view.append(el("button", { class: "secondary", text: "‹ Back", onclick: () => { state.account = null; render(); } }));
+		}
+		if (seq !== renderSeq) return;
+		$("view").replaceChildren(view);
+		if (state.focusForecast) {
+			$(`forecast-${state.focusForecast}`)?.scrollIntoView({ block: "start" });
+			state.focusForecast = null;
+		}
+		api("/forecasts?status=pending").then(({ data }) => ($("pendingBadge").textContent = data.length ? `(${data.length})` : ""), () => {});
+	}
+	for (const b of document.querySelectorAll("nav.tabs button"))
+		b.onclick = () => { state.tab = b.dataset.tab; state.account = null; history.replaceState(null, "", location.pathname); showError(null); render(); };
+	$("prev").onclick = () => { state.month = addMonths(state.month, -1); render(); };
+	$("next").onclick = () => { state.month = addMonths(state.month, 1); render(); };
+
+	api("/status").then((s) => {
+		state.status = s;
+		state.month = s.this_month;
+		render();
+	}, showError);
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "id": "budget",
+  "name": "Budget",
+  "version": "1.0.0",
+  "description": "Monthly budgets per account, charts of actuals against budget and account balances, and AI forecasts of next month that you review before they become budgets.",
+  "ledger": ">=0.11.1",
+  "server": "server.mjs",
+  "ui": "ui",
+  "nav": {
+    "label": "Budget",
+    "icon": {
+      "path": "M3 20h18 M6 17v-4 M10 17v-7 M14 17v-5 M18 17v-3 M4 9l5-4 4 3 7-5"
+    }
+  },
+  "migrations": "migrations",
+  "settings": {
+    "fields": [
+      { "key": "history_months", "label": "Months of history in charts and forecasts", "type": "number", "min": 3, "max": 24, "default": 12 },
+      { "key": "alert_threshold_pct", "label": "Warn when spending reaches (% of budget)", "type": "number", "min": 50, "max": 200, "default": 100, "help": "A dashboard notification lists expense accounts at or above this share of this month's budget." },
+      { "key": "forecast_instructions", "label": "Notes for the AI forecast", "type": "textarea", "help": "Known changes the AI should take into account, e.g. \"Rent rises to $2,100 from January\" or \"No travel in December\"." }
+    ]
+  }
+}

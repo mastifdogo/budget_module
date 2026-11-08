@@ -88,5 +88,5 @@ Release from it. Ledger installs it on its update schedule or with
 
 ## Changes
 
-- **1.0.0**: first release: budgets per account and month, account charts,
+- **0.0.0**: first release: budgets per account and month, account charts,
   AI forecasts with review, dashboard alerts, search.

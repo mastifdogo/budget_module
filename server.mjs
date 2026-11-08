@@ -338,14 +338,18 @@ export default async function register(ctx) {
 					type: "object",
 					properties: {
 						account_code: { type: "string" },
-						amount_cents: { type: "integer", minimum: 0, description: "Forecast total for the month in integer cents, natural sign (positive)." },
+						// No minimum/maximum: not every provider's structured output accepts them; the server checks the range.
+						amount_cents: { type: "integer", description: "Forecast total for the month in integer cents, natural sign (zero or positive)." },
 						reason: { type: "string", description: "One short sentence: why this amount." },
 					},
 					required: ["account_code", "amount_cents", "reason"],
+					additionalProperties: false,
 				},
 			},
 		},
 		required: ["summary", "lines"],
+		// Required by Claude's and OpenAI's strict structured output on every object.
+		additionalProperties: false,
 	};
 
 	// POST /forecasts {month?: "YYYY-MM"}  (default: next month)

@@ -12,7 +12,9 @@ before it becomes a budget.
   and expense account with its budget (type an amount, press Enter; clear it
   to remove), the actual figure, a meter showing how much of the budget is used,
   and a 12-month sparkline. **Copy last month's budget** fills in this month
-  without overwriting lines you've already set. Use ‹ › to move between
+  without overwriting lines you've already set. **+ New account…** opens
+  Ledger's New account dialog and puts the cursor in the new account's
+  budget. Use ‹ › to move between
   months.
 - **Account charts.** Click any account (from the budget table or the
   **Accounts** tab) to see it per month against its budget and forecast, its
@@ -51,7 +53,7 @@ entries. It only reads the books through `ctx.ledger`.
 Roles: viewers can see everything; bookkeepers and admins can edit budgets and
 request, apply or reject forecasts.
 
-Needs Ledger 0.11.1 or later (per-organization settings).
+Needs Ledger 0.11.3 or later (the New account dialog).
 
 ## API (under `/api/v1/m/budget`)
 
@@ -88,11 +90,14 @@ the GitHub Release; don't tag by hand. If it fails with "Resource not
 accessible by integration", allow it once under the repository's Settings →
 Actions → General → Workflow permissions → "Read and write permissions", then
 Actions → Release → Run workflow. Ledger installs it on its update schedule or
-with **Update modules now**. Never edit a released migration. Add the next
+with **Update modules now** (quickest), or when the server starts if
+**Update when the server starts** is on (Settings → Updates). Never edit a released migration. Add the next
 `migrations/NNN_name.sql` instead.
 
 ## Changes
 
+- **0.1.0**: **+ New account…** on the Budget tab creates an account with
+  Ledger's dialog and lets you budget it straight away. Needs Ledger 0.11.3.
 - **0.0.3**: releases are made automatically by a GitHub workflow when the
   version changes on `main` (includes the 0.0.2 change, which wasn't released).
 - **0.0.2**: point to Ledger's renamed **Settings → LLM API** page.

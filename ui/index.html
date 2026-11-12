@@ -340,7 +340,23 @@
 					render();
 				} catch (e) { showError(e); }
 			} });
-		view.append(el("div", { class: "bar", style: "margin-bottom:0.75rem" }, seg, el("span", { class: "spacer" }), copyBtn));
+		// "+ New account…": Ledger's own New account dialog opens over this page (Ledger ≥ 0.11.3).
+		const newBtn = canEdit && el("button", { class: "secondary", text: "+ New account…", title: `Create a new ${state.kind} account to budget`,
+			onclick: async () => {
+				const curs = data.accounts.filter((a) => a.type === state.kind).map((a) => a.currency);
+				const currency = curs.length ? curs.sort((x, y) => curs.filter((c) => c === y).length - curs.filter((c) => c === x).length)[0] : undefined;
+				const acct = await newAccount({ type: state.kind, currency });
+				if (!acct) return;
+				if (acct.type !== "expense" && acct.type !== "revenue") {
+					showError(new Error(`${acct.name} is ${acct.type === "asset" ? "an" : "a"} ${acct.type} account, so it has no budget. Find it under Accounts.`));
+					return;
+				}
+				state.kind = acct.type;
+				state.focusAccount = acct.code;
+				showError(null);
+				render();
+			} });
+		view.append(el("div", { class: "bar", style: "margin-bottom:0.75rem" }, seg, el("span", { class: "spacer" }), newBtn, copyBtn));
 
 		const totals = data.totals.filter((t) => t.type === state.kind);
 		if (!totals.length) view.append(el("div", { class: "card empty", text: `No ${state.kind} accounts yet. Add them under Accounts in Ledger.` }));
@@ -390,7 +406,7 @@
 		const actual = num(a.actual[last]), budget = num(a.budget[last]);
 		let input;
 		if (canEdit) {
-			input = el("input", { class: "money", inputmode: "decimal", value: toDollars(budget), placeholder: "—", "aria-label": `Budget for ${a.name}` });
+			input = el("input", { class: "money", inputmode: "decimal", value: toDollars(budget), placeholder: "—", "aria-label": `Budget for ${a.name}`, "data-code": a.code });
 			const save = async () => {
 				let cents;
 				try { cents = parseMoney(input.value); } catch (e) { showError(e); input.focus(); return; }
@@ -584,6 +600,20 @@
 		return card;
 	}
 
+	// Asks Ledger to open its New account dialog over this page; resolves with the
+	// new account ({ code, name, type, currency, ... }) or null if cancelled.
+	function newAccount(defaults = {}) {
+		const id = crypto.randomUUID();
+		return new Promise((resolve) => {
+			addEventListener("message", function on(e) {
+				if (e.origin !== location.origin || e.data?.type !== "ledger-new-account-result" || e.data.id !== id) return;
+				removeEventListener("message", on);
+				resolve(e.data.account || null);
+			});
+			parent.postMessage({ type: "ledger-new-account", id, defaults }, location.origin);
+		});
+	}
+
 	// ---- shell ----
 	function openAccount(code) {
 		state.account = code;
@@ -608,6 +638,11 @@
 		}
 		if (seq !== renderSeq) return;
 		$("view").replaceChildren(view);
+		if (state.focusAccount) {
+			const input = [...document.querySelectorAll("input[data-code]")].find((i) => i.dataset.code === state.focusAccount);
+			if (input) { input.scrollIntoView({ block: "center" }); input.focus(); }
+			state.focusAccount = null;
+		}
 		if (state.focusForecast) {
 			$(`forecast-${state.focusForecast}`)?.scrollIntoView({ block: "start" });
 			state.focusForecast = null;

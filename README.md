@@ -29,6 +29,14 @@ before it becomes a budget.
   to-do) and you can edit amounts, untick lines, then **Apply as budget**
   (writes those lines into that month's budget, replacing existing lines for
   those accounts) or **Reject** it. Earlier forecasts stay listed.
+- **Import from CSV.** Under **Settings → Modules → Budget**, import budget
+  lines from a spreadsheet saved as CSV: month (`2026-12`, `Dec 2026` or
+  `12/2026`), account (code, exact name, or `5100 Rent`), amount and an
+  optional note. Ledger matches the columns (by name, or with the AI when an
+  LLM connection is set up) and shows a preview first. Rows with an unknown
+  account or month, a non-budget account, or the same account and month twice
+  are listed and block the import. Imported lines replace existing budgets for
+  the same account and month. Needs Ledger 0.13.2; older Ledgers don't show it.
 - **Dashboard alerts.** Once an hour, for every organization, and whenever
   this month's budget changes, a notification lists the expense accounts at or
   over the alert threshold of this month's budget.
@@ -96,6 +104,7 @@ with **Update modules now** (quickest), or when the server starts if
 
 ## Changes
 
+- **0.2.0**: **Import from CSV** for budget lines (Ledger 0.13.2).
 - **0.1.0**: **+ New account…** on the Budget tab creates an account with
   Ledger's dialog and lets you budget it straight away. Needs Ledger 0.11.3.
 - **0.0.3**: releases are made automatically by a GitHub workflow when the

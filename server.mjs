@@ -508,6 +508,123 @@ export default async function register(ctx) {
 		return rows[0];
 	});
 
+	// ---- Import from CSV (Settings → Modules → Budget; Ledger ≥ 0.13.2) ----
+	// Budget lines from a spreadsheet: month, account (code or name), amount, note.
+	const MONTH_NAMES = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+	function importMonth(v) {
+		const t = String(v ?? "").trim().toLowerCase();
+		let m;
+		if ((m = /^(\d{4})[-/.](\d{1,2})(?:[-/.]\d{1,2})?$/.exec(t))) return ym(m[1], m[2]);
+		if ((m = /^(\d{1,2})[-/.](\d{4})$/.exec(t))) return ym(m[2], m[1]);
+		if ((m = /^([a-z]{3,9})\.?[\s,-]+(\d{4})$/.exec(t)) || (m = /^(\d{4})[\s,-]+([a-z]{3,9})$/.exec(t))) {
+			const [name, year] = /^\d/.test(m[1]) ? [m[2], m[1]] : [m[1], m[2]];
+			const i = MONTH_NAMES.indexOf(name.slice(0, 3));
+			return i < 0 ? null : ym(year, i + 1);
+		}
+		return null;
+	}
+	function ym(y, mo) {
+		const n = Number(mo);
+		return n >= 1 && n <= 12 && Number(y) >= 1900 && Number(y) <= 2999 ? `${y}-${String(n).padStart(2, "0")}` : null;
+	}
+
+	async function checkImportRows(rows) {
+		const all = await ctx.ledger.listAccounts({ includeInactive: true });
+		const accounts = all.filter((a) => PL_TYPES.has(a.type));
+		const other = new Map();
+		for (const a of all) if (!PL_TYPES.has(a.type)) other.set(a.code.toLowerCase(), a).set(a.name.trim().toLowerCase(), a);
+		const byCode = new Map(accounts.map((a) => [a.code.toLowerCase(), a]));
+		const byName = new Map();
+		for (const a of accounts) {
+			const k = a.name.trim().toLowerCase();
+			byName.set(k, byName.has(k) ? null : a); // null: two accounts share the name
+		}
+		const errors = [];
+		const lines = [];
+		const seen = new Map();
+		for (const r of rows) {
+			const month = importMonth(r.month);
+			if (!month) {
+				errors.push({ row: r._row, message: `"${r.month}" isn't a month (use 2026-12 or Dec 2026)` });
+				continue;
+			}
+			const key = String(r.account ?? "").trim();
+			let a = byCode.get(key.toLowerCase());
+			if (!a) {
+				// "5100 Rent" or "Rent (5100)" also work.
+				const code = (/^([A-Za-z0-9][A-Za-z0-9._-]{0,31})\s+\S/.exec(key) || /\(([A-Za-z0-9._-]{1,32})\)\s*$/.exec(key) || [])[1];
+				a = (code && byCode.get(code.toLowerCase())) || byName.get(key.toLowerCase());
+			}
+			if (a === null) {
+				errors.push({ row: r._row, message: `More than one account is called "${key}"; use its code` });
+				continue;
+			}
+			if (!a) {
+				const o = other.get(key.toLowerCase());
+				errors.push({ row: r._row, message: o ? `${o.code} ${o.name} is ${o.type === "asset" || o.type === "equity" ? "an" : "a"} ${o.type} account; only revenue and expense accounts have budgets` : `No revenue or expense account "${key}"` });
+				continue;
+			}
+			const cents = Number(r.amount);
+			if (!Number.isSafeInteger(cents) || cents < 0 || cents > Number(MAX_CENTS)) {
+				errors.push({ row: r._row, message: "The amount must be zero or more" });
+				continue;
+			}
+			const dup = `${month}|${a.code}`;
+			if (seen.has(dup)) {
+				errors.push({ row: r._row, message: `${a.code} ${a.name} for ${month} is also on row ${seen.get(dup)}` });
+				continue;
+			}
+			seen.set(dup, r._row);
+			const note = r.note === null || r.note === undefined ? "" : String(r.note).trim().slice(0, 500);
+			lines.push({ month: firstDay(month), account_code: a.code, currency: a.currency, amount_cents: String(cents), note });
+		}
+		return { lines, errors };
+	}
+
+	if (ctx.imports?.provide) {
+		ctx.imports.provide({
+			label: "Budget lines",
+			description: "Monthly budget amounts per revenue or expense account, e.g. from a spreadsheet.",
+			fields: [
+				{ key: "month", label: "Month", required: true, help: "2026-12, Dec 2026 or 12/2026" },
+				{ key: "account", label: "Account (category)", required: true, help: "Account code (e.g. 5100) or exact account name" },
+				{ key: "amount", label: "Budget amount", type: "money", required: true },
+				{ key: "note", label: "Note / comment" },
+			],
+			async handler(rows, { dryRun, user }) {
+				const { lines, errors } = await checkImportRows(rows);
+				const months = [...new Set(lines.map((l) => l.month.slice(0, 7)))].sort();
+				const span = months.length === 0 ? "" : months.length === 1 ? ` for ${monthName(months[0])}` : ` for ${monthName(months[0])} to ${monthName(months[months.length - 1])}`;
+				if (dryRun) {
+					// Change nothing: only count which lines already exist.
+					const { rows: ex } = await ctx.db.query(
+						`SELECT count(*)::int AS n FROM ${T.lines} b JOIN jsonb_to_recordset($1::jsonb) AS x(month date, account_code text)
+						   ON b.month = x.month AND b.account_code = x.account_code`,
+						[JSON.stringify(lines)],
+					);
+					const replace = ex[0].n;
+					return {
+						summary: `Would set ${lines.length} budget line${lines.length === 1 ? "" : "s"}${span}` + (replace ? ` (${replace} replacing existing budgets).` : "."),
+						errors,
+					};
+				}
+				if (errors.length) throw new ctx.HttpError(422, `${errors.length} row(s) have problems; fix them and try again.`);
+				if (lines.length === 0) return { summary: "Nothing to import." };
+				const { rowCount } = await ctx.db.query(
+					`INSERT INTO ${T.lines} (month, account_code, currency, amount_cents, note, updated_by)
+					 SELECT x.month, x.account_code, x.currency, x.amount_cents::bigint, x.note, $2
+					   FROM jsonb_to_recordset($1::jsonb) AS x(month date, account_code text, currency text, amount_cents text, note text)
+					 ON CONFLICT (month, account_code) DO UPDATE
+					   SET amount_cents = EXCLUDED.amount_cents, currency = EXCLUDED.currency, note = EXCLUDED.note,
+					       updated_by = EXCLUDED.updated_by, updated_at = now()`,
+					[JSON.stringify(lines), String(user?.username || "import")],
+				);
+				if (months.includes(thisMonth())) checkAlerts().catch(() => {});
+				return { summary: `Set ${rowCount} budget line${rowCount === 1 ? "" : "s"}${span}.` };
+			},
+		});
+	}
+
 	// ---- search: "budget rent" finds the account's chart ----
 	ctx.search.provide(async (query, { limit }) => {
 		const q = String(query || "").trim().toLowerCase();

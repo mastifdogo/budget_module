@@ -67,6 +67,9 @@
 	tr.group td { background: var(--soft); font-weight: 600; font-size: 0.85rem; }
 	a.acct, button.link { color: var(--text); text-decoration: none; background: none; border: none; padding: 0; font: inherit; cursor: pointer; text-align: left; }
 	a.acct:hover, button.link:hover { color: var(--accent); text-decoration: underline; }
+	.indent { display: inline-block; flex: none; }
+	.acct-cell { display: flex; align-items: baseline; gap: 0.15rem; }
+	.subnote { display: block; font-size: 0.75rem; color: var(--muted); }
 	.code { color: var(--muted); font-size: 0.8rem; margin-right: 0.35rem; font-variant-numeric: tabular-nums; }
 	.meter { position: relative; height: 8px; border-radius: 4px; background: var(--track); min-width: 4rem; overflow: hidden; }
 	.meter > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--series-1); }
@@ -85,7 +88,9 @@
 	@media (max-width: 560px) {
 		body { padding: 0.75rem 0.75rem 1.5rem; }
 		.hide-narrow { display: none; }
-		input.money { width: 6rem; }
+		input.money { width: 5.2rem; }
+		th, td { padding: 0.4rem 0.3rem; }
+		.acct-cell .code { display: block; margin: 0; }
 		.month strong { min-width: 7rem; }
 	}
 	@media (max-width: 360px) {
@@ -372,6 +377,9 @@
 				stat("Budget", budget === null ? "—" : fmt(budget, t.currency)),
 				stat(state.kind === "expense" ? (left !== null && left < 0 ? "Over budget" : "Left to spend") : (left !== null && left > 0 ? "Still to come" : "Ahead of budget"), left === null ? "—" : fmt(Math.abs(left), t.currency)),
 				stat(`${mLabel(data.next_month)} forecast`, t.forecast === null ? "—" : fmt(t.forecast, t.currency))));
+			const nested = data.accounts.filter((r) => r.type === state.kind && r.currency === t.currency && r.nested?.[last]);
+			if (nested.length)
+				card.append(el("p", { class: "muted small", style: "margin:0.25rem 0 0", text: `${nested.length} sub-account budget${nested.length === 1 ? " is" : "s are"} inside a parent's budget, so ${nested.length === 1 ? "it isn't" : "they aren't"} added to the total again.` }));
 			if (budget !== null && actual !== covered)
 				card.append(el("p", { class: "muted small", style: "margin:0.25rem 0 0", text: `${fmt(actual - covered, t.currency)} ${state.kind === "expense" ? "spent" : "received"} in accounts without a budget for ${mLabel(state.month)} isn't counted against the budget.` }));
 			const items = [["", "var(--series-1)", "Actual"], ["line", "var(--budget-ink)", "Budget"]];
@@ -428,11 +436,22 @@
 		const flag = pct === null ? el("span", { class: "flag muted", text: "no budget" })
 			: el("span", { class: `flag ${isExpense && pct > 1 ? "over" : "muted"}`, text: isExpense && pct > 1 ? `▲ ${Math.round(pct * 100)}%` : `${Math.round(pct * 100)}%` });
 		return el("tr", {},
-			el("td", {}, el("button", { class: "link", onclick: () => openAccount(a.code) }, el("span", { class: "code", text: a.code }), a.name)),
+			accountCell(a, a.has_children ? (a.nested?.[last] ? "incl. sub-accounts · inside its parent's budget" : "incl. sub-accounts")
+				: a.nested?.[last] ? "inside its parent's budget" : ""),
 			el("td", { class: "num" }, canEdit ? input : budget === null ? "—" : fmt(budget)),
 			el("td", { class: "num", text: fmt(actual) }),
 			el("td", { class: "hide-tiny" }, el("div", { style: "display:grid;gap:0.2rem" }, meter, flag)),
 			el("td", { class: "hide-narrow" }, sparkline(a.actual, a.budget)));
+	}
+
+	// Account name, indented under its parent (sub-accounts: Ledger ≥ 0.15.0).
+	function accountCell(a, extra) {
+		const depth = Math.min(5, a.depth || 0);
+		return el("td", {}, el("div", { class: "acct-cell" },
+			depth ? el("span", { class: "indent muted", style: `width:${depth * 0.9}rem`, "aria-hidden": "true", text: "↳" }) : null,
+			el("div", {},
+				el("button", { class: "link", style: a.has_children ? "font-weight:600" : "", onclick: () => openAccount(a.code) }, el("span", { class: "code", text: a.code }), a.name),
+				extra ? el("span", { class: "subnote", text: extra }) : null)));
 	}
 
 	// ---- Accounts tab ----
@@ -447,11 +466,11 @@
 			const sign = type === "asset" || type === "expense" ? 1 : -1;
 			for (const a of rows)
 				tbody.append(el("tr", {},
-					el("td", {}, el("button", { class: "link", onclick: () => openAccount(a.code) }, el("span", { class: "code", text: a.code }), a.name)),
-					el("td", { class: "num", text: fmt(Number(a.balance_cents) * sign, a.currency) })));
+					accountCell(a, a.has_children ? "incl. sub-accounts" : ""),
+					el("td", { class: "num", text: fmt(Number(a.has_children ? a.total_balance_cents : a.balance_cents) * sign, a.currency) })));
 		}
 		view.append(el("section", { class: "card" }, el("h2", { text: "All accounts" }),
-			el("p", { class: "muted small", style: "margin:0 0 0.5rem", text: "Current balances. Click an account to chart it over time." }),
+			el("p", { class: "muted small", style: "margin:0 0 0.5rem", text: "Current balances; a parent's balance includes its sub-accounts. Click an account to chart it over time." }),
 			el("table", {}, el("thead", {}, el("tr", {}, el("th", { text: "Account" }), el("th", { class: "num", text: "Balance" }))), tbody)));
 	}
 
@@ -464,6 +483,10 @@
 			el("button", { class: "secondary", text: "‹ Back", onclick: () => { state.account = null; history.replaceState(null, "", location.pathname); render(); } }),
 			el("h2", { style: "margin:0" }, el("span", { class: "code", text: a.code }), a.name),
 			el("span", { class: "pill", text: TYPE_LABEL[a.type] })));
+		if (a.parent_code)
+			view.append(el("p", { class: "muted small", style: "margin:-0.25rem 0 0.75rem" }, "Sub-account of ", el("button", { class: "link", text: a.parent_code, onclick: () => openAccount(a.parent_code) }), "."));
+		if (d.includes?.length)
+			view.append(el("p", { class: "muted small", style: "margin:-0.25rem 0 0.75rem", text: `Includes ${d.includes.length} sub-account${d.includes.length === 1 ? "" : "s"}: ${d.includes.map((x) => `${x.code} ${x.name}`).join(", ")}.` }));
 		const last = d.months.length - 1;
 		if (pl) {
 			const card = el("section", { class: "card" }, el("h2", { text: `${a.type === "expense" ? "Spending" : "Income"} per month · ${cur}` }));
@@ -557,7 +580,7 @@
 			tbody.append(el("tr", { class: "group" }, el("td", { colspan: 4, text: label })));
 			for (const l of lines) {
 				const ctxRow = byCode.get(l.account_code);
-				const lastActual = ctxRow ? ctxRow.actual[ctxRow.actual.length - 1] : null;
+				const lastActual = ctxRow ? (ctxRow.own || ctxRow.actual)[ctxRow.actual.length - 1] : null; // own postings, like the forecast
 				const current = ctxRow ? ctxRow.next_budget : null;
 				const check = el("input", { type: "checkbox", checked: true, "aria-label": `Apply ${l.name}`, disabled: !canEdit });
 				const amount = el("input", { class: "money", inputmode: "decimal", value: toDollars(l.amount_cents), "aria-label": `Amount for ${l.name}`, disabled: !canEdit });

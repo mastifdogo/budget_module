@@ -73,6 +73,41 @@ export default async function register(ctx) {
 	}
 
 	/**
+	 * The chart as a tree (sub-accounts: Ledger ≥ 0.15.0; older Ledgers have
+	 * no parent_code, so every account is top-level). Accounts whose parent
+	 * isn't in `accounts` count as top-level.
+	 */
+	function accountTree(accounts) {
+		const byCode = new Map(accounts.map((a) => [a.code, { a, parent: null, kids: [], depth: 0 }]));
+		for (const n of byCode.values()) {
+			const p = n.a.parent_code && byCode.get(n.a.parent_code);
+			if (p && p.a.type === n.a.type && p.a.currency === n.a.currency) {
+				n.parent = p;
+				p.kids.push(n);
+			}
+		}
+		const order = [];
+		const walk = (n, depth) => {
+			n.depth = depth;
+			order.push(n);
+			n.kids.sort((x, y) => x.a.code.localeCompare(y.a.code)).forEach((k) => walk(k, depth + 1));
+		};
+		[...byCode.values()].filter((n) => !n.parent).sort((x, y) => x.a.code.localeCompare(y.a.code)).forEach((n) => walk(n, 0));
+		const subtree = (code) => {
+			const out = [];
+			const go = (n) => (out.push(n.a.code), n.kids.forEach(go));
+			if (byCode.has(code)) go(byCode.get(code));
+			return out;
+		};
+		const ancestors = (code) => {
+			const out = [];
+			for (let n = byCode.get(code)?.parent; n; n = n.parent) out.push(n.a.code);
+			return out;
+		};
+		return { byCode, order, subtree, ancestors };
+	}
+
+	/**
 	 * Revenue/expense activity per account for each month (natural sign:
 	 * positive spending for expenses, positive income for revenue).
 	 * → Map<account_code, bigint[]> aligned with `months`.
@@ -147,11 +182,27 @@ export default async function register(ctx) {
 			budgetMap.get(b.account_code).set(b.month, b);
 		}
 		const fcLines = new Map((forecast?.lines || []).map((l) => [l.account_code, l]));
+		const tree = accountTree(accounts);
+		const zeros = () => months.map(() => 0n);
+		const own = (c) => actuals.get(c) || zeros();
+		// A parent's actual includes everything posted to its sub-accounts.
+		const rolled = new Map();
+		for (const n of tree.order) {
+			const sum = zeros();
+			for (const c of tree.subtree(n.a.code)) own(c).forEach((v, i) => (sum[i] += v));
+			rolled.set(n.a.code, sum);
+		}
+		const budgetAt = (c, m) => budgetMap.get(c)?.get(m)?.amount_cents ?? null;
+		// A budget counts toward the totals unless an account above it has one that month (no double counting).
+		const counts = (c, m) => budgetAt(c, m) !== null && !tree.ancestors(c).some((p) => budgetAt(p, m) !== null);
 		const rows = [];
-		for (const a of accounts) {
-			const act = actuals.get(a.code) || months.map(() => 0n);
+		for (const n of tree.order) {
+			const a = n.a;
+			const sub = tree.subtree(a.code);
+			const act = rolled.get(a.code);
 			const bm = budgetMap.get(a.code) || new Map();
-			const hasData = act.some((v) => v !== 0n) || bm.size > 0 || fcLines.has(a.code);
+			const fc = sub.filter((c) => fcLines.has(c));
+			const hasData = act.some((v) => v !== 0n) || sub.some((c) => budgetMap.has(c)) || fc.length > 0;
 			if (!a.is_active && !hasData) continue;
 			rows.push({
 				code: a.code,
@@ -159,11 +210,17 @@ export default async function register(ctx) {
 				type: a.type,
 				currency: a.currency,
 				is_active: a.is_active,
+				parent_code: n.parent ? n.parent.a.code : null,
+				depth: n.depth,
+				has_children: n.kids.length > 0,
+				own: own(a.code),
 				actual: act,
 				budget: months.map((m) => (bm.has(m) ? bm.get(m).amount_cents : null)),
+				// true where this budget sits under a budgeted parent and so isn't added to the totals
+				nested: months.map((m) => bm.has(m) && !counts(a.code, m)),
 				note: bm.get(month)?.note || "",
 				next_budget: bm.has(next) ? bm.get(next).amount_cents : null,
-				forecast: fcLines.has(a.code) ? fcLines.get(a.code).amount_cents : null,
+				forecast: fc.length ? fc.reduce((t, c) => t + BigInt(fcLines.get(c).amount_cents), 0n) : null,
 			});
 		}
 		// Totals per currency and type (never across currencies).
@@ -183,16 +240,16 @@ export default async function register(ctx) {
 					forecast: null,
 				});
 			const t = totals.get(k);
-			r.actual.forEach((v, i) => (t.actual[i] += BigInt(v)));
+			r.own.forEach((v, i) => (t.actual[i] += BigInt(v)));
 			r.budget.forEach((v, i) => {
-				if (v !== null) {
+				if (v !== null && !r.nested[i]) {
 					t.budget[i] += BigInt(v);
 					t.budgeted[i] = true;
 					t.budgeted_actual[i] += BigInt(r.actual[i]);
 				}
 			});
-			if (r.next_budget !== null) t.next_budget = (t.next_budget ?? 0n) + BigInt(r.next_budget);
-			if (r.forecast !== null) t.forecast = (t.forecast ?? 0n) + BigInt(r.forecast);
+			if (r.next_budget !== null && counts(r.code, next)) t.next_budget = (t.next_budget ?? 0n) + BigInt(r.next_budget);
+			if (fcLines.has(r.code)) t.forecast = (t.forecast ?? 0n) + BigInt(fcLines.get(r.code).amount_cents);
 		}
 		const totalList = [...totals.values()].map((t) => ({
 			...t,
@@ -216,27 +273,35 @@ export default async function register(ctx) {
 		const month = parseMonth(req.query.get("month"), "month", thisMonth());
 		const s = await settings();
 		const months = monthRange(month, s.historyMonths);
-		const led = await ctx.ledger.accountLedger(accountCode, { from: firstDay(months[0]), to: lastDay(month) });
-		const a = led.account;
+		const a = await ctx.ledger.getAccount(accountCode);
+		// A parent account's charts include its sub-accounts.
+		const tree = accountTree(await ctx.ledger.listAccounts({ includeInactive: true }));
+		const codes = tree.byCode.has(a.code) ? tree.subtree(a.code) : [a.code];
+		const ledgers = await Promise.all(codes.map((c) => ctx.ledger.accountLedger(c, { from: firstDay(months[0]), to: lastDay(month) })));
 		// Natural sign: debit-positive for assets/expenses, credit-positive otherwise.
 		const sign = a.type === "asset" || a.type === "expense" ? 1n : -1n;
 		const idx = new Map(months.map((m, i) => [m, i]));
 		const activity = months.map(() => 0n);
-		for (const l of led.lines) {
-			const i = idx.get(String(l.entry_date).slice(0, 7));
-			if (i !== undefined) activity[i] += (BigInt(l.debit_cents) - BigInt(l.credit_cents)) * sign;
+		let opening = 0n;
+		for (const led of ledgers) {
+			opening += BigInt(led.opening_balance_cents) * sign;
+			for (const l of led.lines) {
+				const i = idx.get(String(l.entry_date).slice(0, 7));
+				if (i !== undefined) activity[i] += (BigInt(l.debit_cents) - BigInt(l.credit_cents)) * sign;
+			}
 		}
 		const balance = [];
-		let run = BigInt(led.opening_balance_cents) * sign;
+		let run = opening;
 		for (const v of activity) balance.push((run += v));
 		const out = {
-			account: { code: a.code, name: a.name, type: a.type, currency: a.currency, is_active: a.is_active },
+			account: { code: a.code, name: a.name, type: a.type, currency: a.currency, is_active: a.is_active, parent_code: a.parent_code ?? null },
+			includes: codes.slice(1).map((c) => ({ code: c, name: tree.byCode.get(c).a.name })),
 			month,
 			months,
 			next_month: addMonths(month, 1),
 			activity,
 			balance,
-			opening_balance_cents: BigInt(led.opening_balance_cents) * sign,
+			opening_balance_cents: opening,
 			budget: null,
 			forecast: null,
 		};
@@ -245,8 +310,14 @@ export default async function register(ctx) {
 			const bm = new Map(budgets.filter((b) => b.account_code === a.code).map((b) => [b.month, b.amount_cents]));
 			out.budget = months.map((m) => (bm.has(m) ? bm.get(m) : null));
 			out.next_budget = bm.has(out.next_month) ? bm.get(out.next_month) : null;
-			const fl = (fc?.lines || []).find((l) => l.account_code === a.code);
-			if (fl) out.forecast = { forecast_id: fc.id, status: fc.status, amount_cents: fl.amount_cents, reason: fl.reason };
+			const fls = (fc?.lines || []).filter((l) => codes.includes(l.account_code));
+			if (fls.length)
+				out.forecast = {
+					forecast_id: fc.id,
+					status: fc.status,
+					amount_cents: fls.reduce((t, l) => t + Number(l.amount_cents), 0),
+					reason: fls.length === 1 && fls[0].account_code === a.code ? fls[0].reason : `Sum of ${fls.length} forecast lines for this account and its sub-accounts.`,
+				};
 		}
 		return out;
 	});
@@ -254,7 +325,22 @@ export default async function register(ctx) {
 	// ---- accounts (for the Accounts tab) ----
 	ctx.route("GET", "/accounts", async () => {
 		const accounts = await ctx.ledger.listAccounts();
-		return { data: accounts.map((a) => ({ code: a.code, name: a.name, type: a.type, currency: a.currency, balance_cents: a.balance_cents })) };
+		const tree = accountTree(accounts);
+		const ownOf = new Map(accounts.map((a) => [a.code, BigInt(a.balance_cents)]));
+		return {
+			data: tree.order.map((n) => ({
+				code: n.a.code,
+				name: n.a.name,
+				type: n.a.type,
+				currency: n.a.currency,
+				parent_code: n.parent ? n.parent.a.code : null,
+				depth: n.depth,
+				has_children: n.kids.length > 0,
+				balance_cents: ownOf.get(n.a.code),
+				// Ledger ≥ 0.15.0 gives the total; work it out on older ones.
+				total_balance_cents: n.a.total_balance_cents ?? tree.subtree(n.a.code).reduce((t, c) => t + ownOf.get(c), 0n),
+			})),
+		};
 	});
 
 	// ---- budget lines ----
@@ -372,12 +458,14 @@ export default async function register(ctx) {
 		const budgetOf = new Map(budgets.map((b) => [`${b.month}|${b.account_code}`, b.amount_cents]));
 		const now = new Date();
 		const daysIn = Number(lastDay(today).slice(8));
-		const history = accounts
-			.map((a) => {
+		const tree = accountTree(accounts);
+		const history = tree.order
+			.map(({ a, parent }) => {
 				const act = actuals.get(a.code) || months.map(() => 0n);
 				return {
 					account_code: a.code,
 					name: a.name,
+					...(parent ? { parent_code: parent.a.code } : {}),
 					type: a.type,
 					currency: a.currency,
 					monthly_cents: Object.fromEntries(months.map((m, i) => [m, Number(act[i])])),
@@ -393,9 +481,13 @@ export default async function register(ctx) {
 		const partial = months.includes(today)
 			? `${today} is the current month and only ${now.getUTCDate()} of ${daysIn} days have passed, so its figures are partial.`
 			: "";
+		const nested = history.some((h) => h.parent_code);
 		const prompt = [
 			`Forecast each account's total for ${target} (${monthName(target)}).`,
 			`History (amounts are integer cents in each account's own currency, positive = normal for the account type: income for revenue, spending for expense). ${partial}`,
+			nested
+				? "Some accounts are sub-accounts (parent_code names the account they sit under). Every amount, in the history and in your forecast, is the account's OWN postings, not including its sub-accounts, so never add sub-accounts into a parent's figure. A budget on a parent covers the parent and its sub-accounts together."
+				: "",
 			JSON.stringify(history),
 			s.instructions ? `Notes from the bookkeeper:\n${s.instructions}` : "",
 			"Return one line per account above that you expect to have activity (skip accounts you expect to be zero). Use the account_code exactly as given. amount_cents is an integer in cents.",
@@ -648,11 +740,13 @@ export default async function register(ctx) {
 		}
 		const [actuals, accounts] = await Promise.all([plActuals([month]), plAccounts({ includeInactive: true })]);
 		const types = new Map(accounts.map((a) => [a.code, a]));
+		const tree = accountTree(accounts);
 		const over = [];
 		for (const b of budgets) {
 			const a = types.get(b.account_code);
 			if (!a || a.type !== "expense") continue;
-			const spent = (actuals.get(b.account_code) || [0n])[0];
+			// A parent's spending includes its sub-accounts.
+			const spent = tree.subtree(a.code).reduce((t, c) => t + (actuals.get(c) || [0n])[0], 0n);
 			const budget = BigInt(b.amount_cents);
 			if (budget === 0n ? spent > 0n : spent * 100n >= budget * BigInt(s.alertPct)) over.push({ a, spent, budget });
 		}

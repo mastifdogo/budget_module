@@ -16,6 +16,14 @@ before it becomes a budget.
   Ledger's New account dialog and puts the cursor in the new account's
   budget. Use ‹ › to move between
   months.
+- **Sub-accounts** (Ledger 0.15.0 and later). The budget table and the
+  Accounts tab show sub-accounts indented under their parent. A parent's
+  actual, balance and charts include everything below it, so you can budget
+  at either level, e.g. one Food budget, or Groceries and Restaurants
+  separately, or both. A budget on a sub-account whose parent also has one
+  is still tracked on its own row, but isn't added to the month's total
+  again. The AI forecasts each account's own postings and a parent shows the
+  sum of the forecasts below it.
 - **Account charts.** Click any account (from the budget table or the
   **Accounts** tab) to see it per month against its budget and forecast, its
   balance at each month end (a line), and, for balance-sheet accounts, its net
@@ -104,6 +112,8 @@ with **Update modules now** (quickest), or when the server starts if
 
 ## Changes
 
+- **0.3.0**: sub-accounts: tree view, parent actuals and charts include
+  their sub-accounts, totals never count a nested budget twice.
 - **0.2.0**: **Import from CSV** for budget lines (Ledger 0.13.2).
 - **0.1.0**: **+ New account…** on the Budget tab creates an account with
   Ledger's dialog and lets you budget it straight away. Needs Ledger 0.11.3.

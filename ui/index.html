@@ -540,7 +540,7 @@
 			} catch (e) { showError(e); }
 			render();
 		};
-		intro.append(el("div", { class: "bar" }, ahead, btn, st.llm?.model ? el("span", { class: "muted small", text: `${st.llm.provider || "AI"} · ${st.llm.model}` }) : null));
+		intro.append(el("div", { class: "bar" }, ahead, btn));
 		view.append(intro);
 
 		const { data } = await api("/forecasts");

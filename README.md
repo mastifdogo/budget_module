@@ -112,6 +112,8 @@ with **Update modules now** (quickest), or when the server starts if
 
 ## Changes
 
+- **0.3.1**: the forecast tab no longer names the AI provider (Ledger 0.18.2
+  connections can be any provider).
 - **0.3.0**: sub-accounts: tree view, parent actuals and charts include
   their sub-accounts, totals never count a nested budget twice.
 - **0.2.0**: **Import from CSV** for budget lines (Ledger 0.13.2).

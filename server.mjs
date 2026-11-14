@@ -148,7 +148,9 @@ export default async function register(ctx) {
 	ctx.route("GET", "/status", async (req) => {
 		let llm;
 		try {
-			llm = await ctx.llm.status();
+			// Provider-neutral: the page only needs to know whether forecasts can run.
+			const st = await ctx.llm.status();
+			llm = { configured: !!st.configured, allowed: !!st.allowed };
 		} catch (e) {
 			llm = { configured: false, allowed: false, error: e.message };
 		}
@@ -434,7 +436,7 @@ export default async function register(ctx) {
 			},
 		},
 		required: ["summary", "lines"],
-		// Required by Claude's and OpenAI's strict structured output on every object.
+		// Strict structured output needs this on every object; data is validated below either way.
 		additionalProperties: false,
 	};
 

@@ -3,7 +3,8 @@
 // person applies (or rejects) before they become budget lines.
 // API reference: docs/MODULE_LLM_CONTEXT.md in the Ledger repository.
 
-const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+// Years 1900-2999, like the CSV import: Date.UTC reads years 0-99 as 1900-1999.
+const MONTH_RE = /^(19|2\d)\d{2}-(0[1-9]|1[0-2])$/;
 const PL_TYPES = new Set(["revenue", "expense"]);
 const MAX_CENTS = 10n ** 13n; // $100 billion: anything above is a typo
 
@@ -135,10 +136,11 @@ export default async function register(ctx) {
 		return rows;
 	}
 
+	const forecastCols = `id, to_char(month, 'YYYY-MM') AS month, status, summary, lines, model, requested_by, decided_by, decided_at, created_at`;
+
 	async function latestForecast(ym) {
 		const { rows } = await ctx.db.query(
-			`SELECT id, to_char(month, 'YYYY-MM') AS month, status, summary, lines, model, requested_by, decided_by, decided_at, created_at
-			   FROM ${T.forecasts} WHERE month = $1::date AND status <> 'rejected' ORDER BY id DESC LIMIT 1`,
+			`SELECT ${forecastCols} FROM ${T.forecasts} WHERE month = $1::date AND status <> 'rejected' ORDER BY id DESC LIMIT 1`,
 			[firstDay(ym)],
 		);
 		return rows[0] || null;
@@ -178,7 +180,7 @@ export default async function register(ctx) {
 			budgetsFor([...months, next]),
 			latestForecast(next),
 		]);
-		const budgetMap = new Map(); // code -> Map(month -> cents)
+		const budgetMap = new Map(); // code -> Map(month -> budget line)
 		for (const b of budgets) {
 			if (!budgetMap.has(b.account_code)) budgetMap.set(b.account_code, new Map());
 			budgetMap.get(b.account_code).set(b.month, b);
@@ -369,7 +371,7 @@ export default async function register(ctx) {
 			 RETURNING to_char(month, 'YYYY-MM') AS month, account_code, currency, amount_cents, note, updated_by, updated_at`,
 			[firstDay(month), accountCode, account.currency, cents, (b.note ?? "").trim(), req.user.username, b.note === undefined ? null : b.note.trim()],
 		);
-		if (month === thisMonth()) checkAlerts().catch((e) => ctx.log.warn("budget alert check failed", { error: e.message }));
+		if (month === thisMonth()) refreshAlerts();
 		return rows[0];
 	});
 
@@ -379,7 +381,7 @@ export default async function register(ctx) {
 		const accountCode = code(req.params.code);
 		const { rowCount } = await ctx.db.query(`DELETE FROM ${T.lines} WHERE month = $1::date AND account_code = $2`, [firstDay(month), accountCode]);
 		if (rowCount === 0) fail(404, "no budget for that account and month");
-		if (month === thisMonth()) checkAlerts().catch(() => {});
+		if (month === thisMonth()) refreshAlerts();
 	});
 
 	// POST /budgets/copy {from, to}: copy one month's budget to another, keeping lines already set there.
@@ -394,12 +396,11 @@ export default async function register(ctx) {
 			 ON CONFLICT (month, account_code) DO NOTHING`,
 			[firstDay(from), firstDay(to), req.user.username],
 		);
+		if (to === thisMonth() && rowCount > 0) refreshAlerts();
 		return { copied: rowCount };
 	});
 
 	// ---- AI forecasts (suggestions until a person applies them) ----
-	const forecastCols = `id, to_char(month, 'YYYY-MM') AS month, status, summary, lines, model, requested_by, decided_by, decided_at, created_at`;
-
 	ctx.route("GET", "/forecasts", async (req) => {
 		const status = req.query.get("status");
 		if (status && !["pending", "applied", "rejected"].includes(status)) fail(422, "status must be pending, applied or rejected");
@@ -553,6 +554,7 @@ export default async function register(ctx) {
 	ctx.route("POST", "/forecasts/:id/apply", async (req) => {
 		const id = idParam(req.params.id);
 		const b = req.body ?? {};
+		if (typeof b !== "object" || Array.isArray(b)) fail(422, "body must be an object");
 		const { rows: found } = await ctx.db.query(`SELECT ${forecastCols} FROM ${T.forecasts} WHERE id = $1`, [id]);
 		const f = found[0];
 		if (!f) fail(404, "no such forecast");
@@ -590,7 +592,7 @@ export default async function register(ctx) {
 		);
 		if (rows[0].updated === 0) fail(409, "This forecast was already decided.");
 		await ctx.dashboard.complete(`forecast-${id}`).catch(() => {});
-		if (f.month === thisMonth()) checkAlerts().catch(() => {});
+		if (f.month === thisMonth()) refreshAlerts();
 		return { id: f.id, status: "applied", month: f.month, lines: rows[0].lines };
 	});
 
@@ -606,7 +608,7 @@ export default async function register(ctx) {
 			fail(rowCount ? 409 : 404, rowCount ? "This forecast was already decided." : "no such forecast");
 		}
 		await ctx.dashboard.complete(`forecast-${id}`).catch(() => {});
-		return rows[0];
+		return (await withCurrentNames(rows))[0];
 	});
 
 	// ---- Import from CSV (Settings → Modules → Budget; Ledger ≥ 0.13.2) ----
@@ -653,8 +655,9 @@ export default async function register(ctx) {
 			let a = byCode.get(key.toLowerCase());
 			if (!a) {
 				// "5100 Rent" or "Rent (5100)" also work.
-				const code = (/^([A-Za-z0-9][A-Za-z0-9._-]{0,31})\s+\S/.exec(key) || /\(([A-Za-z0-9._-]{1,32})\)\s*$/.exec(key) || [])[1];
-				a = (code && byCode.get(code.toLowerCase())) || byName.get(key.toLowerCase());
+				const lead = /^([A-Za-z0-9][A-Za-z0-9._-]{0,31})\s+\S/.exec(key)?.[1];
+				const tail = /\(([A-Za-z0-9._-]{1,32})\)\s*$/.exec(key)?.[1];
+				a = (lead && byCode.get(lead.toLowerCase())) || (tail && byCode.get(tail.toLowerCase())) || byName.get(key.toLowerCase());
 			}
 			if (a === null) {
 				errors.push({ row: r._row, message: `More than one account is called "${key}"; use its code` });
@@ -720,7 +723,7 @@ export default async function register(ctx) {
 					       updated_by = EXCLUDED.updated_by, updated_at = now()`,
 					[JSON.stringify(lines), String(user?.username || "import")],
 				);
-				if (months.includes(thisMonth())) checkAlerts().catch(() => {});
+				if (months.includes(thisMonth())) refreshAlerts();
 				return { summary: `Set ${rowCount} budget line${rowCount === 1 ? "" : "s"}${span}.` };
 			},
 		});
@@ -755,6 +758,8 @@ export default async function register(ctx) {
 	});
 
 	// ---- over-budget alerts on the dashboard (current organization) ----
+	// After a change to this month's budget: not awaited, and a failure never fails the request.
+	const refreshAlerts = () => checkAlerts().catch((e) => ctx.log.warn("budget alert check failed", { error: e.message }));
 	async function checkAlerts() {
 		const month = thisMonth();
 		const s = await settings();
@@ -765,11 +770,11 @@ export default async function register(ctx) {
 			return;
 		}
 		const [actuals, accounts] = await Promise.all([plActuals([month]), plAccounts({ includeInactive: true })]);
-		const types = new Map(accounts.map((a) => [a.code, a]));
+		const byCode = new Map(accounts.map((a) => [a.code, a]));
 		const tree = accountTree(accounts);
 		const over = [];
 		for (const b of budgets) {
-			const a = types.get(b.account_code);
+			const a = byCode.get(b.account_code);
 			if (!a || a.type !== "expense") continue;
 			// A parent's spending includes its sub-accounts.
 			const spent = tree.subtree(a.code).reduce((t, c) => t + (actuals.get(c) || [0n])[0], 0n);
@@ -793,9 +798,10 @@ export default async function register(ctx) {
 		});
 	}
 
+	// One organization's failure must not stop the others getting their alerts.
 	const sweep = () =>
 		ctx.orgs
-			.forEach(() => checkAlerts())
+			.forEach((org) => checkAlerts().catch((e) => ctx.log.warn("budget alert check failed", { organization: org.name, error: e.message })))
 			.catch((e) => ctx.log.warn("budget alert sweep failed", { error: e.message }));
 	setTimeout(sweep, 30_000).unref();
 	setInterval(sweep, 60 * 60 * 1000).unref();

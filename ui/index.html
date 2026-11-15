@@ -31,7 +31,7 @@
 	.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
 	.spacer { flex: 1; }
 	header.bar { margin-bottom: 0.75rem; }
-	button, .btn { padding: 0.35rem 0.75rem; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+	button { padding: 0.35rem 0.75rem; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
 	button.secondary { background: transparent; color: var(--accent); }
 	button.plain { background: transparent; color: var(--muted); border-color: transparent; padding: 0.35rem 0.5rem; }
 	button:disabled { opacity: 0.55; cursor: default; }
@@ -65,8 +65,8 @@
 	th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); font-weight: 600; }
 	td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 	tr.group td { background: var(--soft); font-weight: 600; font-size: 0.85rem; }
-	a.acct, button.link { color: var(--text); text-decoration: none; background: none; border: none; padding: 0; font: inherit; cursor: pointer; text-align: left; }
-	a.acct:hover, button.link:hover { color: var(--accent); text-decoration: underline; }
+	button.link { color: var(--text); text-decoration: none; background: none; border: none; padding: 0; font: inherit; cursor: pointer; text-align: left; }
+	button.link:hover { color: var(--accent); text-decoration: underline; }
 	.indent { display: inline-block; flex: none; }
 	.acct-cell { display: flex; align-items: baseline; gap: 0.15rem; }
 	.subnote { display: block; font-size: 0.75rem; color: var(--muted); }
@@ -95,7 +95,6 @@
 	}
 	@media (max-width: 360px) {
 		.hide-tiny { display: none; }
-		th, td { padding: 0.4rem 0.3rem; }
 	}
 </style>
 </head>
@@ -348,7 +347,7 @@
 		// "+ New account…": Ledger's own New account dialog opens over this page (Ledger ≥ 0.11.3).
 		const newBtn = canEdit && el("button", { class: "secondary", text: "+ New account…", title: `Create a new ${state.kind} account to budget`,
 			onclick: async () => {
-				const curs = data.accounts.filter((a) => a.type === state.kind).map((a) => a.currency);
+				const curs = kindRows.map((a) => a.currency);
 				const currency = curs.length ? curs.sort((x, y) => curs.filter((c) => c === y).length - curs.filter((c) => c === x).length)[0] : undefined;
 				const acct = await newAccount({ type: state.kind, currency });
 				if (!acct) return;
@@ -375,7 +374,7 @@
 			card.append(el("div", { class: "stats" },
 				stat(`${mLabel(state.month)} actual`, fmt(actual, t.currency)),
 				stat("Budget", budget === null ? "—" : fmt(budget, t.currency)),
-				stat(state.kind === "expense" ? (left !== null && left < 0 ? "Over budget" : "Left to spend") : (left !== null && left > 0 ? "Still to come" : "Ahead of budget"), left === null ? "—" : fmt(Math.abs(left), t.currency)),
+				stat(state.kind === "expense" ? (left !== null && left < 0 ? "Over budget" : "Left to spend") : (left !== null && left < 0 ? "Ahead of budget" : "Still to come"), left === null ? "—" : fmt(Math.abs(left), t.currency)),
 				stat(`${mLabel(data.next_month)} forecast`, t.forecast === null ? "—" : fmt(t.forecast, t.currency))));
 			const nested = data.accounts.filter((r) => r.type === state.kind && r.currency === t.currency && r.nested?.[last]);
 			if (nested.length)
@@ -429,12 +428,14 @@
 			input.onkeydown = (e) => { if (e.key === "Enter") input.blur(); if (e.key === "Escape") { input.value = toDollars(budget); input.blur(); } };
 			input.onchange = save;
 		}
-		const pct = budget ? actual / budget : null;
+		// A budget of zero is still a budget: anything posted is over it.
+		const pct = budget === null ? null : budget > 0 ? actual / budget : actual > 0 ? Infinity : 0;
+		const pctText = pct === null ? "" : Number.isFinite(pct) ? `${Math.round(pct * 100)}%` : "over";
 		const isExpense = a.type === "expense";
 		const meterClass = pct === null ? "" : isExpense ? (pct > 1 ? "over" : pct * 100 >= state.status.alert_threshold_pct * 0.9 ? "warn" : "") : "";
-		const meter = el("div", { class: `meter ${meterClass}`, title: pct === null ? "No budget" : `${Math.round(pct * 100)}% of budget` }, el("i", { style: `width:${Math.min(100, Math.round((pct || 0) * 100))}%` }));
+		const meter = el("div", { class: `meter ${meterClass}`, title: pct === null ? "No budget" : Number.isFinite(pct) ? `${pctText} of budget` : "Over a budget of zero" }, el("i", { style: `width:${Math.min(100, Math.round((pct || 0) * 100))}%` }));
 		const flag = pct === null ? el("span", { class: "flag muted", text: "no budget" })
-			: el("span", { class: `flag ${isExpense && pct > 1 ? "over" : "muted"}`, text: isExpense && pct > 1 ? `▲ ${Math.round(pct * 100)}%` : `${Math.round(pct * 100)}%` });
+			: el("span", { class: `flag ${isExpense && pct > 1 ? "over" : "muted"}`, text: isExpense && pct > 1 ? `▲ ${pctText}` : pctText });
 		return el("tr", {},
 			accountCell(a, a.has_children ? (a.nested?.[last] ? "incl. sub-accounts · inside its parent's budget" : "incl. sub-accounts")
 				: a.nested?.[last] ? "inside its parent's budget" : ""),

@@ -39,7 +39,7 @@ before it becomes a budget.
   those accounts) or **Reject** it. Earlier forecasts stay listed.
 - **Import from CSV.** Under **Settings → Modules → Budget**, import budget
   lines from a spreadsheet saved as CSV: month (`2026-12`, `Dec 2026` or
-  `12/2026`), account (code, exact name, or `5100 Rent`), amount and an
+  `12/2026`), account (code, exact name, `5100 Rent` or `Rent (5100)`), amount and an
   optional note. Ledger matches the columns (by name, or with the AI when an
   LLM connection is set up) and shows a preview first. Rows with an unknown
   account or month, a non-budget account, or the same account and month twice
@@ -112,6 +112,13 @@ with **Update modules now** (quickest), or when the server starts if
 
 ## Changes
 
+- **0.3.3**: fixes. Copying a budget into this month now refreshes the
+  dashboard alert; the CSV import accepts `Rent (5100)`; a budget of zero
+  shows as a budget (over it once anything is posted) instead of "no
+  budget"; the income card no longer says "Ahead of budget" when there is
+  no budget; months before 1900 are refused instead of being read as
+  19xx; applying a forecast needs a JSON object; one organization's failed
+  alert check no longer stops the others.
 - **0.3.2**: saved forecasts follow renumbered accounts (Ledger 0.19.3) and
   show accounts' current names; no model names on the page.
 - **0.3.1**: the forecast tab no longer names the AI provider (Ledger 0.18.2

@@ -407,14 +407,21 @@ export default async function register(ctx) {
 			`SELECT ${forecastCols} FROM ${T.forecasts} WHERE ($1::text IS NULL OR status = $1) ORDER BY id DESC LIMIT 50`,
 			[status || null],
 		);
-		return { data: rows };
+		return { data: await withCurrentNames(rows) };
 	});
 
 	ctx.route("GET", "/forecasts/:id", async (req) => {
 		const { rows } = await ctx.db.query(`SELECT ${forecastCols} FROM ${T.forecasts} WHERE id = $1`, [idParam(req.params.id)]);
 		if (!rows[0]) fail(404, "no such forecast");
-		return rows[0];
+		return (await withCurrentNames(rows))[0];
 	});
+
+	// Saved forecasts keep the account name from when they were made; show today's name instead.
+	async function withCurrentNames(forecasts) {
+		if (!forecasts.some((f) => f.lines?.length)) return forecasts;
+		const names = new Map((await ctx.ledger.listAccounts({ includeInactive: true })).map((a) => [a.code, a.name]));
+		return forecasts.map((f) => ({ ...f, lines: (f.lines || []).map((l) => ({ ...l, name: names.get(l.account_code) ?? l.name })) }));
+	}
 
 	const FORECAST_SCHEMA = {
 		type: "object",
@@ -716,6 +723,23 @@ export default async function register(ctx) {
 				if (months.includes(thisMonth())) checkAlerts().catch(() => {});
 				return { summary: `Set ${rowCount} budget line${rowCount === 1 ? "" : "s"}${span}.` };
 			},
+		});
+	}
+
+	// ---- renumbered accounts (Ledger ≥ 0.19.3) ----
+	// Ledger itself rewrites budget_lines.account_code; saved forecasts keep
+	// their codes inside the lines JSON, so rewrite those here. It runs in the
+	// organization whose account changed.
+	if (typeof ctx.ledger.onAccountCodeChanged === "function") {
+		ctx.ledger.onAccountCodeChanged(async ({ old_code, new_code }) => {
+			const { rowCount } = await ctx.db.query(
+				`UPDATE ${T.forecasts} f
+				    SET lines = (SELECT jsonb_agg(CASE WHEN e->>'account_code' = $1 THEN jsonb_set(e, '{account_code}', to_jsonb($2::text)) ELSE e END ORDER BY n)
+				                   FROM jsonb_array_elements(f.lines) WITH ORDINALITY AS x(e, n))
+				  WHERE f.lines @> jsonb_build_array(jsonb_build_object('account_code', $1::text))`,
+				[old_code, new_code],
+			);
+			if (rowCount) ctx.log.info("forecasts: account code changed", { old_code, new_code, forecasts: rowCount });
 		});
 	}
 

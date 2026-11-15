@@ -112,6 +112,8 @@ with **Update modules now** (quickest), or when the server starts if
 
 ## Changes
 
+- **0.3.2**: saved forecasts follow renumbered accounts (Ledger 0.19.3) and
+  show accounts' current names; no model names on the page.
 - **0.3.1**: the forecast tab no longer names the AI provider (Ledger 0.18.2
   connections can be any provider).
 - **0.3.0**: sub-accounts: tree view, parent actuals and charts include
@@ -122,7 +124,7 @@ with **Update modules now** (quickest), or when the server starts if
 - **0.0.3**: releases are made automatically by a GitHub workflow when the
   version changes on `main` (includes the 0.0.2 change, which wasn't released).
 - **0.0.2**: point to Ledger's renamed **Settings → LLM API** page.
-- **0.0.1**: fix AI forecasts with Claude (and strict OpenAI-compatible
-  servers), which refused the forecast's JSON schema.
+- **0.0.1**: fix AI forecasts with providers that enforce strict JSON
+  schemas, which refused the forecast's schema.
 - **0.0.0**: first release: budgets per account and month, account charts,
   AI forecasts with review, dashboard alerts, search.

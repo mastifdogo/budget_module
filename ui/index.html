@@ -569,7 +569,7 @@
 		const byCode = new Map((ov?.accounts || []).map((a) => [a.code, a]));
 		const card = el("section", { class: "card", id: `forecast-${f.id}` });
 		card.append(el("div", { class: "bar" }, el("h2", { style: "margin:0", text: `AI forecast for ${mLabel(f.month, true)}` }), el("span", { class: "pill pending", text: "waiting for review" })));
-		card.append(el("p", { class: "muted small", style: "margin:0.25rem 0", text: `Requested by ${f.requested_by} · ${new Date(f.created_at).toLocaleString()}${f.model ? ` · ${f.model}` : ""}` }));
+		card.append(el("p", { class: "muted small", style: "margin:0.25rem 0", text: `Requested by ${f.requested_by} · ${new Date(f.created_at).toLocaleString()}` }));
 		if (f.summary) card.append(el("p", { text: f.summary }));
 		const inputs = [];
 		const groups = [["expense", "Expenses"], ["revenue", "Revenue"]];

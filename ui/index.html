@@ -82,6 +82,8 @@
 	.pill { display: inline-block; font-size: 0.72rem; padding: 0.05rem 0.45rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
 	.pill.pending { border-color: var(--series-2); color: var(--text); }
 	.pill.applied { border-color: var(--good); }
+	button.root { background: transparent; color: var(--danger); border-color: var(--danger); }
+	.root-tag { color: var(--danger); font-weight: 700; font-size: 0.72rem; letter-spacing: 0.03em; }
 	details summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; margin-top: 0.5rem; }
 	.empty { padding: 1.5rem 0.5rem; text-align: center; color: var(--muted); }
 	.scroll { overflow-x: auto; }
@@ -554,8 +556,9 @@
 				tbody.append(el("tr", {},
 					el("td", {}, el("button", { class: "link", text: mLabel(f.month, true), onclick: () => { const d = $(`f-${f.id}`); if (d) d.open = !d.open; } })),
 					el("td", {}, el("span", { class: `pill ${f.status}`, text: f.status })),
-					el("td", { class: "hide-narrow small muted", text: `${f.requested_by} · ${new Date(f.created_at).toLocaleDateString()}${f.decided_by ? ` · ${f.status} by ${f.decided_by}` : ""}` })));
-				tbody.append(el("tr", {}, el("td", { colspan: 3, style: "padding:0;border:0" },
+					el("td", { class: "hide-narrow small muted", text: `${f.requested_by} · ${new Date(f.created_at).toLocaleDateString()}${f.decided_by ? ` · ${f.status} by ${f.decided_by}` : ""}` }),
+					el("td", { class: "num" }, rootDelete(f))));
+				tbody.append(el("tr", {}, el("td", { colspan: 4, style: "padding:0;border:0" },
 					el("details", { id: `f-${f.id}`, style: "padding:0 0.5rem" }, el("summary", { text: `${f.lines.length} suggested lines` }),
 						el("p", { class: "small", text: f.summary }),
 						el("table", { class: "small" }, el("tbody", {}, f.lines.map((l) => el("tr", {}, el("td", {}, el("span", { class: "code", text: l.account_code }), l.name), el("td", { class: "num", text: fmt(l.amount_cents, l.currency) })))))))));
@@ -619,9 +622,19 @@
 			reject.onclick = async () => {
 				try { await api(`/forecasts/${f.id}/reject`, { method: "POST", body: "{}" }); showError(null); render(); } catch (e) { showError(e); }
 			};
-			card.append(el("div", { class: "bar", style: "margin-top:0.75rem" }, apply, reject, el("span", { class: "muted small", text: "Untick or edit lines before applying." })));
-		}
+			card.append(el("div", { class: "bar", style: "margin-top:0.75rem" }, apply, reject, el("span", { class: "muted small", text: "Untick or edit lines before applying." }), el("span", { class: "spacer" }), rootDelete(f)));
+		} else if (state.status.root) card.append(el("div", { class: "bar", style: "margin-top:0.75rem" }, rootDelete(f)));
 		return card;
+	}
+
+	// Root mode (Ledger ≥ 0.21.1): an admin can delete any forecast; Ledger logs it and can put it back.
+	function rootDelete(f) {
+		if (!state.status.root) return null;
+		return el("button", { class: "root", title: "Root mode: delete this forecast (Ledger can restore it from Settings → Root log)",
+			onclick: async () => {
+				if (!confirm(`Root: delete the ${f.status} forecast for ${mLabel(f.month, true)}? Budget lines it set stay as they are.`)) return;
+				try { await api(`/forecasts/${f.id}`, { method: "DELETE" }); showError(null); render(); } catch (e) { showError(e); }
+			} }, el("span", { class: "root-tag", text: "ROOT" }), " Delete");
 	}
 
 	// Asks Ledger to open its New account dialog over this page; resolves with the

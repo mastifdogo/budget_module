@@ -160,6 +160,8 @@ export default async function register(ctx) {
 		return {
 			user: { username: req.user.username, role: req.user.role },
 			can_edit: req.user.role !== "viewer",
+			// Root mode (Ledger ≥ 0.21.1): the admin may delete any forecast, also applied ones.
+			root: req.user.root === true,
 			llm,
 			this_month: thisMonth(),
 			history_months: s.historyMonths,
@@ -328,7 +330,9 @@ export default async function register(ctx) {
 
 	// ---- accounts (for the Accounts tab) ----
 	ctx.route("GET", "/accounts", async () => {
-		const accounts = await ctx.ledger.listAccounts();
+		const all = await ctx.ledger.listAccounts();
+		// Accounts Ledger hides (clearing accounts, Ledger ≥ 0.20.1) stay out of the list.
+		const accounts = all.filter((a) => !a.hidden);
 		const tree = accountTree(accounts);
 		const ownOf = new Map(accounts.map((a) => [a.code, BigInt(a.balance_cents)]));
 		return {
@@ -342,7 +346,7 @@ export default async function register(ctx) {
 				has_children: n.kids.length > 0,
 				balance_cents: ownOf.get(n.a.code),
 				// Ledger ≥ 0.15.0 gives the total; work it out on older ones.
-				total_balance_cents: n.a.total_balance_cents ?? tree.subtree(n.a.code).reduce((t, c) => t + ownOf.get(c), 0n),
+				total_balance_cents: n.a.total_balance_cents ?? tree.subtree(n.a.code).reduce((t, c) => t + (ownOf.get(c) ?? 0n), 0n),
 			})),
 		};
 	});
@@ -596,6 +600,17 @@ export default async function register(ctx) {
 		return { id: f.id, status: "applied", month: f.month, lines: rows[0].lines };
 	});
 
+	// DELETE /forecasts/:id — root mode only. Through ctx.root so Ledger logs it
+	// and can put it back; deleting a forecast never touches budget lines.
+	ctx.route("DELETE", "/forecasts/:id", async (req) => {
+		const id = idParam(req.params.id);
+		if (!req.user.root || !ctx.root) fail(403, "Only an admin in root mode can delete a forecast.");
+		const { rows } = await ctx.db.query(`SELECT id, to_char(month, 'YYYY-MM') AS month, status FROM ${T.forecasts} WHERE id = $1`, [id]);
+		if (!rows[0]) fail(404, "no such forecast");
+		await ctx.root.remove(req, "forecasts", id, `Budget: deleted the ${rows[0].status} forecast for ${monthName(rows[0].month)} (#${id})`);
+		await ctx.dashboard.remove(`forecast-${id}`).catch(() => {});
+	});
+
 	ctx.route("POST", "/forecasts/:id/reject", async (req) => {
 		const id = idParam(req.params.id);
 		const { rows } = await ctx.db.query(
@@ -752,6 +767,7 @@ export default async function register(ctx) {
 		if (q.length < 2) return [];
 		const accounts = await ctx.ledger.listAccounts();
 		return accounts
+			.filter((a) => !a.hidden)
 			.filter((a) => a.code.toLowerCase().startsWith(q) || a.name.toLowerCase().includes(q))
 			.slice(0, Math.min(limit || 5, 5))
 			.map((a) => ({ title: `${a.name} · chart`, subtitle: `Budget · ${a.code} · ${a.type}`, href: `/apps/budget?account=${encodeURIComponent(a.code)}` }));

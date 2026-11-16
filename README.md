@@ -61,15 +61,21 @@ entries. It only reads the books through `ctx.ledger`.
    to use it. Forecasts use the connection for text. Budgets and
    charts work without it.
 3. Optional, under **Settings → Budget**:
-   - *Months of history* (3–24, default 12) for charts and forecasts.
-   - *Warn when spending reaches* (% of budget, default 100).
-   - *Notes for the AI forecast*: known changes, e.g. "Rent rises to $2,100
-     from January".
+   - *History (months)* (3–24, default 12) for charts and forecasts.
+   - *Warn at (% of budget)* (default 100) for the dashboard alert.
+   - *Forecast notes*: known changes, e.g. "Rent rises to $2,100 from
+     January".
 
 Roles: viewers can see everything; bookkeepers and admins can edit budgets and
-request, apply or reject forecasts.
+request, apply or reject forecasts. An admin in **root mode** can also delete
+any forecast, applied or rejected ones included; Ledger logs it under
+Settings → Root log and can put it back. Deleting a forecast leaves the
+budget lines it set alone.
 
-Needs Ledger 0.11.3 or later (the New account dialog).
+Accounts Ledger hides (clearing accounts such as Unreconciled) are left out of
+the Accounts tab and search.
+
+Needs Ledger 0.21.1 or later.
 
 ## API (under `/api/v1/m/budget`)
 
@@ -85,6 +91,7 @@ Needs Ledger 0.11.3 or later (the New account dialog).
 | `POST /forecasts` `{month?}` | ask the AI (default next month; this month to 3 ahead) → pending forecast |
 | `POST /forecasts/:id/apply` `{lines?: [{account_code, amount_cents}]}` | approve (optionally edited) lines into the budget |
 | `POST /forecasts/:id/reject` | reject |
+| `DELETE /forecasts/:id` | root mode only: delete a forecast (logged; Ledger can restore it) |
 
 ## Development
 
@@ -112,6 +119,9 @@ with **Update modules now** (quickest), or when the server starts if
 
 ## Changes
 
+- **0.4.0**: root mode can delete forecasts (through Ledger's root log);
+  hidden clearing accounts stay out of the Accounts tab and search; a tidier
+  settings page with headings. Needs Ledger 0.21.1.
 - **0.3.3**: fixes. Copying a budget into this month now refreshes the
   dashboard alert; the CSV import accepts `Rent (5100)`; a budget of zero
   shows as a budget (over it once anything is posted) instead of "no

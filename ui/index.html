@@ -588,18 +588,38 @@
 				const current = ctxRow ? ctxRow.next_budget : null;
 				const check = el("input", { type: "checkbox", checked: true, "aria-label": `Apply ${l.name}`, disabled: !canEdit });
 				const amount = el("input", { class: "money", inputmode: "decimal", value: toDollars(l.amount_cents), "aria-label": `Amount for ${l.name}`, disabled: !canEdit });
-				inputs.push({ l, check, amount });
+				// What applying writes for an account that has ticked sub-account lines (filled in by showBudgets).
+				const withSub = el("div", { class: "small", hidden: true });
+				check.onchange = amount.oninput = () => showBudgets();
+				inputs.push({ l, check, amount, withSub });
 				tbody.append(el("tr", {},
 					el("td", {}, check),
 					el("td", {}, el("div", {}, el("span", { class: "code", text: l.account_code }), l.name), el("div", { class: "reason", text: l.reason })),
 					el("td", { class: "num hide-narrow small muted" },
 						el("div", { text: lastActual === null ? "" : `${mLabel(addMonths(f.month, -1))}: ${fmt(lastActual)}` }),
 						el("div", { text: current === null ? "no budget yet" : `budget now: ${fmt(current)}` })),
-					el("td", { class: "num" }, amount, el("div", { class: "small muted", text: l.currency }))));
+					el("td", { class: "num" }, amount, el("div", { class: "small muted", text: l.currency }), withSub)));
 			}
 		}
+		// A budget covers the account's sub-accounts, while each line is the account's own amount: the
+		// server adds the ticked lines below an account into its budget. Show that sum as it will be written.
+		const cents = (i) => { try { return parseMoney(i.amount.value); } catch { return null; } };
+		const below = (i) => inputs.filter((j) => j !== i && j.check.checked && (j.l.ancestor_codes || []).includes(i.l.account_code));
+		function showBudgets() {
+			for (const i of inputs) {
+				const subs = i.check.checked ? below(i) : [];
+				i.withSub.hidden = subs.length === 0;
+				if (!subs.length) continue;
+				const parts = [i, ...subs].map(cents);
+				i.withSub.textContent = parts.includes(null) ? "budget with sub-accounts: —"
+					: `budget with sub-accounts: ${fmt(parts.reduce((t, c) => t + c, 0), i.l.currency)}`;
+			}
+		}
+		showBudgets();
+		const nested = inputs.some((i) => inputs.some((j) => j !== i && (j.l.ancestor_codes || []).includes(i.l.account_code)));
 		card.append(el("div", { class: "scroll" }, el("table", {},
 			el("thead", {}, el("tr", {}, el("th", { text: "" }), el("th", { text: "Account and reason" }), el("th", { class: "num hide-narrow", text: "Context" }), el("th", { class: "num", text: "Forecast" }))), tbody)));
+		if (nested) card.append(el("p", { class: "muted small", style: "margin:0.5rem 0 0", text: "Each amount is the account's own. A budget also covers the account's sub-accounts, so an account's budget is its amount plus the ticked sub-accounts below it (shown under its amount)." }));
 		if (canEdit) {
 			const apply = el("button", { text: "Apply as budget" });
 			const reject = el("button", { class: "secondary", text: "Reject" });
@@ -611,7 +631,8 @@
 						return { account_code: i.l.account_code, amount_cents: c };
 					});
 					if (!lines.length) throw new Error("Tick at least one line, or reject the forecast.");
-					if (!confirm(`Set ${lines.length} budget line(s) for ${mLabel(f.month, true)}? Existing budgets for those accounts are replaced.`)) return;
+					const rolled = inputs.some((i) => i.check.checked && below(i).length > 0);
+					if (!confirm(`Set ${lines.length} budget line(s) for ${mLabel(f.month, true)}? Existing budgets for those accounts are replaced.${rolled ? " Accounts with ticked sub-accounts get the budget shown under their amount." : ""}`)) return;
 					apply.disabled = reject.disabled = true;
 					await api(`/forecasts/${f.id}/apply`, { method: "POST", body: JSON.stringify({ lines }) });
 					showError(null);

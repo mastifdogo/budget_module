@@ -3,6 +3,8 @@
 // person applies (or rejects) before they become budget lines.
 // API reference: docs/MODULE_LLM_CONTEXT.md in the Ledger repository.
 
+import { ALERT_KEY, isOldAlertKey, rollUpLines } from "./lib.mjs";
+
 // Years 1900-2999, like the CSV import: Date.UTC reads years 0-99 as 1900-1999.
 const MONTH_RE = /^(19|2\d)\d{2}-(0[1-9]|1[0-2])$/;
 const PL_TYPES = new Set(["revenue", "expense"]);
@@ -422,10 +424,17 @@ export default async function register(ctx) {
 	});
 
 	// Saved forecasts keep the account name from when they were made; show today's name instead.
+	// Each line also says which accounts it sits under (ancestor_codes), so the review screen can show
+	// what applying writes: a parent's budget includes the sub-account lines applied with it.
 	async function withCurrentNames(forecasts) {
 		if (!forecasts.some((f) => f.lines?.length)) return forecasts;
-		const names = new Map((await ctx.ledger.listAccounts({ includeInactive: true })).map((a) => [a.code, a.name]));
-		return forecasts.map((f) => ({ ...f, lines: (f.lines || []).map((l) => ({ ...l, name: names.get(l.account_code) ?? l.name })) }));
+		const accounts = await ctx.ledger.listAccounts({ includeInactive: true });
+		const names = new Map(accounts.map((a) => [a.code, a.name]));
+		const tree = accountTree(accounts.filter((a) => PL_TYPES.has(a.type)));
+		return forecasts.map((f) => ({
+			...f,
+			lines: (f.lines || []).map((l) => ({ ...l, name: names.get(l.account_code) ?? l.name, ancestor_codes: tree.ancestors(l.account_code) })),
+		}));
 	}
 
 	const FORECAST_SCHEMA = {
@@ -555,6 +564,8 @@ export default async function register(ctx) {
 
 	// POST /forecasts/:id/apply {lines?: [{account_code, amount_cents}]}
 	// A person approves the forecast (optionally edited / a subset) and it becomes the month's budget.
+	// Each amount is the account's own, like the forecast's; a budget covers the account's sub-accounts
+	// too, so an account's budget is its amount plus the amounts of the lines applied below it.
 	ctx.route("POST", "/forecasts/:id/apply", async (req) => {
 		const id = idParam(req.params.id);
 		const b = req.body ?? {};
@@ -574,9 +585,16 @@ export default async function register(ctx) {
 			const a = accounts.get(c) || fail(422, `${c} is not a revenue or expense account`);
 			if (seen.has(c)) fail(422, `${c} appears twice`);
 			seen.add(c);
-			return { account_code: c, currency: a.currency, amount_cents: parseCents(l.amount_cents, `lines[${i}].amount_cents`).toString() };
+			return { account_code: c, currency: a.currency, amount_cents: parseCents(l.amount_cents, `lines[${i}].amount_cents`) };
 		});
 		if (apply.length === 0) fail(422, "Pick at least one line to apply, or reject the forecast.");
+		const budgetOf = rollUpLines(apply, accountTree([...accounts.values()]).ancestors);
+		const write = apply.map((l) => {
+			const budget = budgetOf.get(l.account_code);
+			if (budget > MAX_CENTS) fail(422, `The budget for ${l.account_code} with its sub-accounts is out of range`);
+			// bigint cents travel as text inside the JSON parameter
+			return { account_code: l.account_code, currency: l.currency, amount_cents: budget.toString(), with_sub: budget !== l.amount_cents };
+		});
 		// One statement: mark applied only if still pending, and write the lines only then.
 		const { rows } = await ctx.db.query(
 			`WITH f AS (
@@ -584,15 +602,16 @@ export default async function register(ctx) {
 			    WHERE id = $1 AND status = 'pending' RETURNING id, month
 			 ), ins AS (
 			   INSERT INTO ${T.lines} (month, account_code, currency, amount_cents, note, updated_by)
-			   SELECT f.month, x.account_code, x.currency, x.amount_cents::bigint, 'AI forecast #' || f.id, $2
-			     FROM f, jsonb_to_recordset($3::jsonb) AS x(account_code text, currency text, amount_cents text)
+			   SELECT f.month, x.account_code, x.currency, x.amount_cents::bigint,
+			          'AI forecast #' || f.id || CASE WHEN x.with_sub THEN ' (with its sub-accounts)' ELSE '' END, $2
+			     FROM f, jsonb_to_recordset($3::jsonb) AS x(account_code text, currency text, amount_cents text, with_sub boolean)
 			   ON CONFLICT (month, account_code) DO UPDATE
 			     SET amount_cents = EXCLUDED.amount_cents, currency = EXCLUDED.currency, note = EXCLUDED.note,
 			         updated_by = EXCLUDED.updated_by, updated_at = now()
 			   RETURNING 1
 			 )
 			 SELECT (SELECT count(*) FROM f)::int AS updated, (SELECT count(*) FROM ins)::int AS lines`,
-			[id, req.user.username, JSON.stringify(apply)],
+			[id, req.user.username, JSON.stringify(write)],
 		);
 		if (rows[0].updated === 0) fail(409, "This forecast was already decided.");
 		await ctx.dashboard.complete(`forecast-${id}`).catch(() => {});
@@ -780,7 +799,11 @@ export default async function register(ctx) {
 		const month = thisMonth();
 		const s = await settings();
 		const budgets = await budgetsFor([month]);
-		const key = `over-${month}`;
+		// One key for every month: this month's check replaces or removes last month's alert. Before
+		// 0.4.1 each month had its own key and a past month's was never removed: those go here.
+		const key = ALERT_KEY;
+		const mine = await ctx.dashboard.list({ kind: "notification" }).catch(() => []);
+		for (const old of mine) if (isOldAlertKey(old.key)) await ctx.dashboard.remove(old.key, "notification").catch(() => {});
 		if (budgets.length === 0) {
 			await ctx.dashboard.remove(key, "notification").catch(() => {});
 			return;
@@ -811,6 +834,8 @@ export default async function register(ctx) {
 				.join("\n"),
 			level: over.some((o) => o.spent > o.budget) ? "warning" : "info",
 			link: "/apps/budget",
+			// It is about this month only: gone when the month is over, even if no check runs then.
+			expiresAt: `${firstDay(addMonths(month, 1))}T00:00:00Z`,
 		});
 	}
 

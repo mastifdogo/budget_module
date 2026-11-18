@@ -23,7 +23,8 @@ before it becomes a budget.
   separately, or both. A budget on a sub-account whose parent also has one
   is still tracked on its own row, but isn't added to the month's total
   again. The AI forecasts each account's own postings and a parent shows the
-  sum of the forecasts below it.
+  sum of the forecasts below it; applying a forecast writes that sum as the
+  parent's budget (its own amount plus the applied sub-accounts below it).
 - **Account charts.** Click any account (from the budget table or the
   **Accounts** tab) to see it per month against its budget and forecast, its
   balance at each month end (a line), and, for balance-sheet accounts, its net
@@ -36,7 +37,11 @@ before it becomes a budget.
   applies it:** the forecast waits as a pending suggestion (with a dashboard
   to-do) and you can edit amounts, untick lines, then **Apply as budget**
   (writes those lines into that month's budget, replacing existing lines for
-  those accounts) or **Reject** it. Earlier forecasts stay listed.
+  those accounts) or **Reject** it. Earlier forecasts stay listed. Each
+  amount on the review screen is the account's own; because a budget covers
+  the account's sub-accounts too, an account with ticked sub-accounts gets
+  its amount plus theirs as its budget, shown under its amount before you
+  apply.
 - **Import from CSV.** Under **Settings → Modules → Budget**, import budget
   lines from a spreadsheet saved as CSV: month (`2026-12`, `Dec 2026` or
   `12/2026`), account (code, exact name, `5100 Rent` or `Rent (5100)`), amount and an
@@ -47,7 +52,8 @@ before it becomes a budget.
   the same account and month. Needs Ledger 0.13.2; older Ledgers don't show it.
 - **Dashboard alerts.** Once an hour, for every organization, and whenever
   this month's budget changes, a notification lists the expense accounts at or
-  over the alert threshold of this month's budget.
+  over the alert threshold of this month's budget. It is replaced or removed
+  when the month changes.
 
 Amounts are integer cents in each account's own currency. Totals are shown per
 currency, never added across CAD and USD. The module never posts journal
@@ -89,7 +95,7 @@ Needs Ledger 0.21.1 or later.
 | `POST /budgets/copy` `{from, to}` | copy a month's lines, keeping lines already set |
 | `GET /forecasts?status=` · `GET /forecasts/:id` | forecasts |
 | `POST /forecasts` `{month?}` | ask the AI (default next month; this month to 3 ahead) → pending forecast |
-| `POST /forecasts/:id/apply` `{lines?: [{account_code, amount_cents}]}` | approve (optionally edited) lines into the budget |
+| `POST /forecasts/:id/apply` `{lines?: [{account_code, amount_cents}]}` | approve (optionally edited) lines into the budget; each amount is the account's own, and its budget becomes that plus the lines applied below it |
 | `POST /forecasts/:id/reject` | reject |
 | `DELETE /forecasts/:id` | root mode only: delete a forecast (logged; Ledger can restore it) |
 
@@ -103,6 +109,9 @@ TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres \
 ```
 
 Add `--serve 8098` to keep it running and try it in a browser.
+
+`npm test` (`node --test`, no dependencies) covers `lib.mjs`, the parts that
+need neither Ledger nor a database; `package.json` is only for that.
 
 ## Releasing
 
@@ -119,6 +128,13 @@ with **Update modules now** (quickest), or when the server starts if
 
 ## Changes
 
+- **0.4.1**: fixes. Applying a forecast wrote each account's own forecast as
+  its budget, also for a parent account, whose budget covers its
+  sub-accounts: the parent's budget came out far too low and the dashboard
+  said it was over budget. A parent now gets its own amount plus the applied
+  sub-accounts below it, and the review screen shows that budget before you
+  apply. The dashboard alert of a past month was never removed once the
+  month changed; it is now (old ones are cleared too).
 - **0.4.0**: root mode can delete forecasts (through Ledger's root log);
   hidden clearing accounts stay out of the Accounts tab and search; a tidier
   settings page with headings. Needs Ledger 0.21.1.

@@ -1,9 +1,9 @@
 {
   "id": "budget",
   "name": "Budget",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Monthly budgets per account, charts of actuals against budget and account balances, and AI forecasts of next month that you review before they become budgets.",
-  "ledger": ">=0.21.1",
+  "ledger": ">=0.35.4",
   "server": "server.mjs",
   "ui": "ui",
   "nav": {

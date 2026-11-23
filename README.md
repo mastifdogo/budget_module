@@ -81,7 +81,7 @@ budget lines it set alone.
 Accounts Ledger hides (clearing accounts such as Unreconciled) are left out of
 the Accounts tab and search.
 
-Needs Ledger 0.21.1 or later.
+Needs Ledger 0.35.4 or later (its Back button steps through the page's views).
 
 ## API (under `/api/v1/m/budget`)
 
@@ -128,6 +128,10 @@ with **Update modules now** (quickest), or when the server starts if
 
 ## Changes
 
+- **0.5.0**: no back button on an account's page: Ledger's own Back button,
+  in its sidebar, steps through the tabs and accounts you opened. The view
+  is part of the address (`#/accounts`, `#/account/5100`), so a reload or a
+  restored window opens it again. Needs Ledger 0.35.4.
 - **0.4.1**: fixes. Applying a forecast wrote each account's own forecast as
   its budget, also for a parent account, whose budget covers its
   sub-accounts: the parent's budget came out far too low and the dashboard

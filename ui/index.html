@@ -182,13 +182,24 @@
 	// ---- state ----
 	const params = new URLSearchParams(location.search);
 	const state = {
-		tab: params.get("forecast") ? "forecast" : "budget",
+		tab: "budget",
 		month: null,
 		status: null,
 		kind: "expense",
-		account: params.get("account"),
+		account: null,
 		focusForecast: params.get("forecast"),
 	};
+	// The view is in the address after "#" (#/accounts, #/account/5100), so
+	// Ledger's Back button steps through the views (Ledger ≥ 0.35.4) and the
+	// page needs no back button. Without it: what the link asked for.
+	function fromHash() {
+		const [, a, b] = location.hash.split("/");
+		const tab = ["budget", "accounts", "forecast"].includes(a);
+		state.account = a === "account" && b ? decodeURIComponent(b) : tab ? null : params.get("account");
+		if (a !== "account") state.tab = tab ? a : params.get("forecast") ? "forecast" : "budget";
+	}
+	fromHash();
+	const go = (hash) => (location.hash = hash);
 
 	// ---- charts ----
 	function niceScale(min, max, count = 4) {
@@ -483,7 +494,6 @@
 		const a = d.account, cur = a.currency;
 		const pl = a.type === "revenue" || a.type === "expense";
 		view.append(el("div", { class: "bar", style: "margin-bottom:0.75rem" },
-			el("button", { class: "secondary", text: "‹ Back", onclick: () => { state.account = null; history.replaceState(null, "", location.pathname); render(); } }),
 			el("h2", { style: "margin:0" }, el("span", { class: "code", text: a.code }), a.name),
 			el("span", { class: "pill", text: TYPE_LABEL[a.type] })));
 		if (a.parent_code)
@@ -636,8 +646,8 @@
 					apply.disabled = reject.disabled = true;
 					await api(`/forecasts/${f.id}/apply`, { method: "POST", body: JSON.stringify({ lines }) });
 					showError(null);
-					state.tab = "budget"; state.month = f.month;
-					render();
+					state.month = f.month;
+					go("#/budget");
 				} catch (e) { showError(e); apply.disabled = reject.disabled = false; }
 			};
 			reject.onclick = async () => {
@@ -674,10 +684,7 @@
 
 	// ---- shell ----
 	function openAccount(code) {
-		state.account = code;
-		history.replaceState(null, "", `?account=${encodeURIComponent(code)}`);
-		render();
-		scrollTo(0, 0);
+		go(`#/account/${encodeURIComponent(code)}`);
 	}
 	let renderSeq = 0;
 	async function render() {
@@ -692,7 +699,6 @@
 			else await renderForecast(view);
 		} catch (e) {
 			showError(e);
-			if (state.account) view.append(el("button", { class: "secondary", text: "‹ Back", onclick: () => { state.account = null; render(); } }));
 		}
 		if (seq !== renderSeq) return;
 		$("view").replaceChildren(view);
@@ -708,7 +714,13 @@
 		api("/forecasts?status=pending").then(({ data }) => ($("pendingBadge").textContent = data.length ? `(${data.length})` : ""), () => {});
 	}
 	for (const b of document.querySelectorAll("nav.tabs button"))
-		b.onclick = () => { state.tab = b.dataset.tab; state.account = null; history.replaceState(null, "", location.pathname); showError(null); render(); };
+		b.onclick = () => go(`#/${b.dataset.tab}`);
+	addEventListener("hashchange", () => {
+		fromHash();
+		showError(null);
+		render();
+		if (state.account) scrollTo(0, 0);
+	});
 	$("prev").onclick = () => { state.month = addMonths(state.month, -1); render(); };
 	$("next").onclick = () => { state.month = addMonths(state.month, 1); render(); };
 

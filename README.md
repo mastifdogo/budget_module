@@ -128,6 +128,7 @@ with **Update modules now** (quickest), or when the server starts if
 
 ## Changes
 
+- **0.5.1**: no "Budget" heading on the page: Ledger's window already names it.
 - **0.5.0**: no back button on an account's page: Ledger's own Back button,
   in its sidebar, steps through the tabs and accounts you opened. The view
   is part of the address (`#/accounts`, `#/account/5100`), so a reload or a
